@@ -36,6 +36,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import pyperclip
 import pathspec
+import threading
 
 def load_gitignore_patterns(root_folder):
     """
@@ -53,7 +54,7 @@ def load_gitignore_patterns(root_folder):
             return pathspec.PathSpec.from_lines('gitwildmatch', file)
     return None
 
-def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files):
+def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files, progress_callback=None):
     """
     Scan the project directory and extract file contents based on exclusion rules.
     
@@ -62,6 +63,7 @@ def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files
     exclude_folders (str): Comma-separated list of folders to exclude
     exclude_extensions (str): Comma-separated list of file extensions to exclude
     exclude_files (str): Comma-separated list of specific files to exclude
+    progress_callback (function): Callback function to update progress
 
     Returns:
     tuple: (content, file_list, total_files, total_lines)
@@ -114,10 +116,10 @@ def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files
     content.append("\nFile Code:\n")
     
     # Extract content from scanned files
-    for file_path in file_list:
+    for idx, file_path in enumerate(file_list):
         full_path = os.path.join(root_folder, file_path)
         try:
-            with open(full_path, "r", errors="ignore") as file:
+            with open(full_path, "r", encoding="utf-8", errors="ignore") as file:
                 file_content = file.read()
                 content.append(f"\nFile: {file_path}\n")
                 content.append(file_content)
@@ -128,7 +130,10 @@ def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files
             content.append(f"\nFile: {file_path}\n")
             content.append(f"Error reading file: {e}\n")
             content.append("\n" + "="*80 + "\n")
-    
+        
+        if progress_callback:
+            progress_callback(idx + 1, len(file_list))
+
     return "".join(content), file_list, total_files, total_lines
 
 class ProjectScannerGUI:
@@ -242,6 +247,10 @@ class ProjectScannerGUI:
 
         tk.Button(stats_frame, text="Copy to Clipboard", command=self.copy_to_clipboard).pack(side=tk.RIGHT)
 
+        # Add progress bar
+        self.progress_bar = ttk.Progressbar(right_frame, orient=tk.HORIZONTAL, length=100, mode='determinate')
+        self.progress_bar.pack(fill=tk.X, pady=(0, 10))
+
         # Initialize exclusions
         self.update_exclusions()
 
@@ -273,9 +282,29 @@ class ProjectScannerGUI:
             messagebox.showerror("Error", "Please select a project folder.")
             return
 
-        result, file_list, total_files, total_lines = scan_project(folder, exclude_folders, exclude_extensions, exclude_files)
-        
-        # Update GUI with scan results
+        self.progress_bar['value'] = 0
+        self.stats_label.config(text="Scanning...")
+
+        def update_progress(current, total):
+            progress = int((current / total) * 100)
+            self.progress_bar['value'] = progress
+            self.master.update_idletasks()
+
+        def scan_thread():
+            try:
+                result, file_list, total_files, total_lines = scan_project(
+                    folder, exclude_folders, exclude_extensions, exclude_files, 
+                    progress_callback=update_progress
+                )
+                
+                self.master.after(0, self.update_gui, result, file_list, total_files, total_lines)
+            except Exception as e:
+                self.master.after(0, lambda: messagebox.showerror("Error", f"An error occurred: {str(e)}"))
+
+        threading.Thread(target=scan_thread, daemon=True).start()
+
+    def update_gui(self, result, file_list, total_files, total_lines):
+        """Update GUI with scan results."""
         self.output_text.delete(1.0, tk.END)
         self.output_text.insert(tk.END, result)
 
@@ -284,6 +313,7 @@ class ProjectScannerGUI:
             self.file_listbox.insert(tk.END, file)
 
         self.stats_label.config(text=f"Total files scanned: {total_files} | Total lines extracted: {total_lines}")
+        self.progress_bar['value'] = 100
 
     def on_file_select(self, event):
         """Handle file selection in the sidebar."""
