@@ -1,0 +1,6 @@
+torch
+torchvision
+Pillow
+numpy
+clip @ git+https://github.com/openai/CLIP.git
+PyQt5
