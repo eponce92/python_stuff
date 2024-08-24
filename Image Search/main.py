@@ -5,6 +5,13 @@ import os
 from image_search import ImageSearchEngine
 import threading
 import subprocess
+import sv_ttk
+import darkdetect
+import sys
+
+# Only import pywinstyles on Windows
+if sys.platform == "win32":
+    import pywinstyles
 
 class ImageSearchApp:
     def __init__(self, master):
@@ -12,12 +19,32 @@ class ImageSearchApp:
         self.master.title("Image Search App")
         self.search_engine = ImageSearchEngine()
 
+        # Apply Sun Valley theme
+        sv_ttk.set_theme(darkdetect.theme().lower())
+
+        # Apply theme to title bar on Windows
+        if sys.platform == "win32":
+            self.apply_theme_to_titlebar()
+
         # Create main frame
         self.main_frame = ttk.Frame(self.master)
         self.main_frame.pack(fill=tk.BOTH, expand=True)
 
         # Create and place widgets
         self.create_widgets()
+
+    def apply_theme_to_titlebar(self):
+        version = sys.getwindowsversion()
+
+        if version.major == 10 and version.build >= 22000:
+            # Set the title bar color to the background color on Windows 11 for better appearance
+            pywinstyles.change_header_color(self.master, "#1c1c1c" if sv_ttk.get_theme() == "dark" else "#fafafa")
+        elif version.major == 10:
+            pywinstyles.apply_style(self.master, "dark" if sv_ttk.get_theme() == "dark" else "normal")
+
+            # A hacky way to update the title bar's color on Windows 10 (it doesn't update instantly like on Windows 11)
+            self.master.wm_attributes("-alpha", 0.99)
+            self.master.wm_attributes("-alpha", 1)
 
     def create_widgets(self):
         # Create left sidebar
@@ -107,6 +134,19 @@ class ImageSearchApp:
         scrollbar_y.pack(side="right", fill="y")
         scrollbar_x.pack(side="bottom", fill="x")
 
+        # Bind mouse wheel event to the canvas
+        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        canvas.bind("<Shift-MouseWheel>", lambda event: canvas.xview_scroll(int(-1 * (event.delta / 120)), "units"))
+
+        # Make sure the scrollable frame captures mouse events
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_shift_mousewheel(event):
+            canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+
         return canvas, scrollable_frame
 
     def select_folder(self):
@@ -195,22 +235,7 @@ class ImageSearchApp:
         for widget in self.all_images_frame.winfo_children():
             widget.destroy()
 
-        canvas = tk.Canvas(self.all_images_frame)
-        scrollbar_y = ttk.Scrollbar(self.all_images_frame, orient="vertical", command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(self.all_images_frame, orient="horizontal", command=canvas.xview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_y.pack(side="right", fill="y")
-        scrollbar_x.pack(side="bottom", fill="x")
+        canvas, scrollable_frame = self.create_scrollable_canvas(self.all_images_frame)
 
         indexed_images = self.search_engine.get_indexed_images()
         columns = 5  # You can adjust this number to change the number of columns
@@ -238,22 +263,7 @@ class ImageSearchApp:
         for widget in self.search_results_frame.winfo_children():
             widget.destroy()
 
-        canvas = tk.Canvas(self.search_results_frame)
-        scrollbar_y = ttk.Scrollbar(self.search_results_frame, orient="vertical", command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(self.search_results_frame, orient="horizontal", command=canvas.xview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
-
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
-
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_y.pack(side="right", fill="y")
-        scrollbar_x.pack(side="bottom", fill="x")
+        canvas, scrollable_frame = self.create_scrollable_canvas(self.search_results_frame)
 
         columns = 5  # You can adjust this number to change the number of columns
 
