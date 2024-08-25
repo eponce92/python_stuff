@@ -1,3 +1,6 @@
+# main.py
+
+
 import flet as ft
 from threading import Timer
 from image_search import ImageSearchEngine
@@ -292,6 +295,9 @@ class ImageSearchApp:
         self.progress_bar.visible = True
         self.page.update()
 
+        # Update the search engine's similarity threshold
+        self.search_engine.user_similarity_threshold = self.similarity_threshold
+
         threading.Thread(target=self.search_thread, args=(search_type, query_text), daemon=True).start()
         self.check_search_status()
 
@@ -319,8 +325,7 @@ class ImageSearchApp:
     def search_thread(self, search_type, query_text):
         try:
             results = self.perform_search(search_type, query_text)
-            threshold = self.similarity_threshold
-            self.search_results = [(path, score) for path, score in results if score >= threshold]
+            self.search_results = results  # Remove local filtering
             self.search_queue.put(("finished", self.search_results))
         except Exception as e:
             self.search_queue.put(("error", str(e)))
@@ -356,6 +361,11 @@ class ImageSearchApp:
 
         for img_path in indexed_images:
             file_name = os.path.basename(img_path)
+            
+            # Comment out or remove the image description part
+            # descriptions = self.search_engine.get_image_description(img_path)
+            # description_text = " | ".join(descriptions)
+            
             image = ft.Image(
                 src=img_path,
                 width=150,
@@ -363,6 +373,9 @@ class ImageSearchApp:
                 fit=ft.ImageFit.COVER,
                 repeat=ft.ImageRepeat.NO_REPEAT,
                 border_radius=ft.border_radius.all(10),
+                # Remove or comment out these lines
+                # semantics_label=description_text,
+                # tooltip=description_text,
             )
             
             def create_on_double_tap(path):
@@ -370,7 +383,7 @@ class ImageSearchApp:
             
             gesture_detector = ft.GestureDetector(
                 content=image,
-                on_double_tap=create_on_double_tap(img_path)
+                on_double_tap=create_on_double_tap(img_path),
             )
             
             self.all_images_grid.controls.append(
@@ -378,7 +391,7 @@ class ImageSearchApp:
                     content=ft.Column([
                         gesture_detector,
                         ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
-                    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     padding=10,
                     margin=ft.margin.all(5),
                     height=200,

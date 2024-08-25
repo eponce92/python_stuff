@@ -1,3 +1,5 @@
+# image_search.py
+
 import os
 import clip
 import torch
@@ -36,6 +38,7 @@ class ImageSearchEngine:
         
         self.image_features = {}
         self.image_dir = None
+        self.user_similarity_threshold = 0.0  # Default to 0
 
     def index_images(self, folder_path, progress_callback=None):
         print(f"Scanning folder: {folder_path}")
@@ -139,9 +142,8 @@ class ImageSearchEngine:
             similarity = torch.cosine_similarity(query_features, features.unsqueeze(0))
             similarities[path] = similarity.item()
         
-        # Adjust minimum similarity threshold for text searches
-        min_similarity = 0.2 if is_text_search else 0.7
-        filtered_similarities = {k: v for k, v in similarities.items() if v >= min_similarity}
+        # Use the user-set similarity threshold
+        filtered_similarities = {k: v for k, v in similarities.items() if v >= self.user_similarity_threshold}
         
         # Debug: Print similarity scores
         print(f"Number of results before filtering: {len(similarities)}")
@@ -156,18 +158,35 @@ class ImageSearchEngine:
             image_results = dict(self.search_by_image(query_image_path))
             text_results = dict(self.search_by_text(query_text))
             
-            # Find common images (AND operation)
-            common_images = set(image_results.keys()) & set(text_results.keys())
-            
-            # Combine scores for common images
+            # Combine results, prioritizing images that appear in both searches
             combined_results = {}
-            for path in common_images:
-                combined_results[path] = (image_results[path] + text_results[path]) / 2
+            for path in set(image_results.keys()) | set(text_results.keys()):
+                image_score = image_results.get(path, 0)
+                text_score = text_results.get(path, 0)
+                
+                # If the image appears in both searches, boost its score
+                if path in image_results and path in text_results:
+                    combined_score = (image_score + text_score) / 2 * 1.5  # 50% boost
+                else:
+                    combined_score = (image_score + text_score) / 2
+                
+                combined_results[path] = combined_score
             
-            return sorted(combined_results.items(), key=lambda x: x[1], reverse=True)
+            # Filter results based on a minimum combined score
+            min_combined_score = 0.3  # Adjust this threshold as needed
+            filtered_results = {k: v for k, v in combined_results.items() if v >= min_combined_score}
+            
+            sorted_results = sorted(filtered_results.items(), key=lambda x: x[1], reverse=True)
+            
+            return sorted_results
         except Exception as e:
             print(f"Error in search_hybrid: {str(e)}")
             raise
+        finally:
+            print(f"Number of image results: {len(image_results)}")
+            print(f"Number of text results: {len(text_results)}")
+            print(f"Number of combined results: {len(combined_results)}")
+            print(f"Number of filtered results: {len(filtered_results)}")
 
     def get_indexed_images(self):
         return list(self.image_features.keys())
@@ -184,3 +203,43 @@ class ImageSearchEngine:
         cache_data = {path: features.tolist() for path, features in self.image_features.items()}
         cache_data['folder_path'] = self.image_dir
         return cache_data
+
+    def get_image_description(self, image_path):
+        try:
+            image = Image.open(image_path).convert("RGB")
+            image_input = self.preprocess(image).unsqueeze(0).to(self.device)
+            
+            with torch.no_grad():
+                image_features = self.model.encode_image(image_input)
+            
+            # Normalize the image features
+            image_features = image_features / image_features.norm(dim=-1, keepdim=True)
+            
+            # List of potential labels
+            labels = ["a photo of a person", "a landscape", "an animal", "food", "a building", "a vehicle", "clothing", "technology", "art", "text or writing"]
+            
+            text_inputs = clip.tokenize(labels).to(self.device)
+            
+            with torch.no_grad():
+                text_features = self.model.encode_text(text_inputs)
+            
+            # Normalize the text features
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            # Calculate similarities
+            similarities = (100.0 * image_features @ text_features.T).softmax(dim=-1)
+            
+            print(f"Similarities shape: {similarities.shape}")
+            print(f"Similarities values: {similarities}")
+            
+            # Get top 3 labels (or less if there are fewer than 3)
+            num_labels = min(3, similarities.shape[1])
+            values, indices = similarities[0].topk(num_labels)
+            
+            print(f"Top {num_labels} indices: {indices}")
+            print(f"Top {num_labels} values: {values}")
+            
+            return [f"{labels[i]} ({values[i]:.2f}%)" for i in range(num_labels)]
+        except Exception as e:
+            print(f"Error in get_image_description: {str(e)}")
+            return ["Error processing image"]
