@@ -8,14 +8,32 @@ from torchvision import transforms
 
 class ImageSearchEngine:
     def __init__(self):
-        self.device = "cuda" if torch.cuda.is_available() else "cpu"
+        print(f"CUDA is available: {torch.cuda.is_available()}")
+        print(f"CUDA version: {torch.version.cuda}")
+        print(f"PyTorch version: {torch.__version__}")
+        
+        if torch.cuda.is_available():
+            print(f"CUDA device count: {torch.cuda.device_count()}")
+            print(f"Current CUDA device: {torch.cuda.current_device()}")
+            print(f"CUDA device name: {torch.cuda.get_device_name(0)}")
+            
+            # Force CUDA usage
+            torch.cuda.set_device(0)
+            self.device = torch.device("cuda:0")
+        else:
+            print("CUDA is not available. Using CPU.")
+            self.device = torch.device("cpu")
+        
         print(f"Using device: {self.device}")
+        
         try:
             self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
             print("CLIP model loaded successfully")
+            print(f"CLIP model device: {next(self.model.parameters()).device}")
         except Exception as e:
             print(f"Error loading CLIP model: {str(e)}")
             raise
+        
         self.image_features = {}
         self.preprocess = transforms.Compose([
             transforms.Resize((224, 224)),
@@ -59,6 +77,7 @@ class ImageSearchEngine:
             return
 
         image_input = torch.stack(images).to(self.device)
+        print(f"Image input device: {image_input.device}")  # Add this line
         with torch.no_grad():
             image_features = self.model.encode_image(image_input)
         
