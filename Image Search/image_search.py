@@ -153,13 +153,16 @@ class ImageSearchEngine:
     def search_hybrid(self, query_image_path, query_text):
         print(f"Performing hybrid search with image: {query_image_path} and text: {query_text}")
         try:
-            image_results = self.search_by_image(query_image_path)
-            text_results = self.search_by_text(query_text)
+            image_results = dict(self.search_by_image(query_image_path))
+            text_results = dict(self.search_by_text(query_text))
             
-            # Combine results (you may want to adjust this combination method)
+            # Find common images (AND operation)
+            common_images = set(image_results.keys()) & set(text_results.keys())
+            
+            # Combine scores for common images
             combined_results = {}
-            for path in set(dict(image_results).keys()) | set(dict(text_results).keys()):
-                combined_results[path] = (dict(image_results).get(path, 0) + dict(text_results).get(path, 0)) / 2
+            for path in common_images:
+                combined_results[path] = (image_results[path] + text_results[path]) / 2
             
             return sorted(combined_results.items(), key=lambda x: x[1], reverse=True)
         except Exception as e:

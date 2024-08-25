@@ -76,19 +76,21 @@ class ImageSearchApp:
         # Sidebar controls
         self.folder_path_text = ft.Text("No folder selected", style=ft.TextThemeStyle.BODY_SMALL)
         self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)
-        self.search_option = ft.Dropdown(
-            width=280,
-            options=[
-                ft.dropdown.Option("Text"),
-                ft.dropdown.Option("Image"),
-                ft.dropdown.Option("Hybrid"),
-            ],
-            label="Search Method",
-            hint_text="Choose search method",
-            autofocus=True,
-            filled=True,
-            dense=True,
-            expand=1
+        self.search_type_text = ft.Text("Search Type:", size=16, weight=ft.FontWeight.BOLD)
+        self.text_search_switch = ft.CupertinoSwitch(
+            label="🔤 Text",
+            value=True,
+            on_change=self.update_search_type
+        )
+        self.image_search_switch = ft.CupertinoSwitch(
+            label="🖼️ Image",
+            value=False,
+            on_change=self.update_search_type
+        )
+        self.hybrid_search_switch = ft.CupertinoSwitch(
+            label="👾 Hybrid",
+            value=False,
+            on_change=self.update_search_type
         )
         self.search_entry = ft.TextField(
             label="Text Search",
@@ -152,7 +154,10 @@ class ImageSearchApp:
                 self.progress_bar,
             ]),
             create_step_card("Step 2: Choose Search Method", [
-                self.search_option,
+                self.search_type_text,
+                self.text_search_switch,
+                self.image_search_switch,
+                self.hybrid_search_switch,
             ]),
             create_step_card("Step 3: Select Sample Image", [
                 ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280, **button_style),
@@ -272,7 +277,13 @@ class ImageSearchApp:
         self.page.update()
 
     def search_images(self, e):
-        search_type = self.search_option.value
+        if self.text_search_switch.value:
+            search_type = "Text"
+        elif self.image_search_switch.value:
+            search_type = "Image"
+        else:
+            search_type = "Hybrid"
+
         query_text = self.search_entry.value
 
         if not self.validate_search_inputs(search_type, query_text):
@@ -493,6 +504,22 @@ class ImageSearchApp:
         
         with open(cache_file, 'w') as f:
             json.dump(cache_data, f)
+
+    def update_search_type(self, e):
+        if e.control == self.text_search_switch and e.control.value:
+            self.image_search_switch.value = False
+            self.hybrid_search_switch.value = False
+        elif e.control == self.image_search_switch and e.control.value:
+            self.text_search_switch.value = False
+            self.hybrid_search_switch.value = False
+        elif e.control == self.hybrid_search_switch and e.control.value:
+            self.text_search_switch.value = False
+            self.image_search_switch.value = False
+        else:
+            # Ensure at least one switch is always on
+            if not (self.text_search_switch.value or self.image_search_switch.value or self.hybrid_search_switch.value):
+                e.control.value = True
+        self.page.update()
 
 async def main(page: ft.Page):
     page.window.width = 1200
