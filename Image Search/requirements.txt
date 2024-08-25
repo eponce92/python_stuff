@@ -5,3 +5,4 @@ clip
 sv-ttk
 darkdetect
 pywinstyles
+tkinterdnd2

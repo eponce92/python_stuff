@@ -8,6 +8,9 @@ import subprocess
 import sv_ttk
 import darkdetect
 import sys
+import json
+from tkinterdnd2 import DND_FILES, TkinterDnD
+import concurrent.futures
 
 # Only import pywinstyles on Windows
 if sys.platform == "win32":
@@ -19,12 +22,11 @@ class ImageSearchApp:
         self.master.title("Image Search App")
         self.search_engine = ImageSearchEngine()
 
-        # Apply Sun Valley theme
-        sv_ttk.set_theme(darkdetect.theme().lower())
+        # Create theme variable
+        self.theme_var = tk.StringVar(value=darkdetect.theme().lower())
 
-        # Apply theme to title bar on Windows
-        if sys.platform == "win32":
-            self.apply_theme_to_titlebar()
+        # Apply Sun Valley theme
+        self.apply_theme(self.theme_var.get())
 
         # Create main frame
         self.main_frame = ttk.Frame(self.master)
@@ -33,16 +35,30 @@ class ImageSearchApp:
         # Create and place widgets
         self.create_widgets()
 
-    def apply_theme_to_titlebar(self):
+        # Load cached image features if available
+        self.load_cache()
+
+    def apply_theme(self, theme):
+        sv_ttk.set_theme(theme)
+        if sys.platform == "win32":
+            self.apply_theme_to_titlebar(theme)
+        
+        # Update the theme variable
+        self.theme_var.set(theme)
+        
+        # Update the checkbutton state if it exists
+        if hasattr(self, 'dark_mode_check'):
+            if theme == "dark":
+                self.dark_mode_check.state(['selected'])
+            else:
+                self.dark_mode_check.state(['!selected'])
+
+    def apply_theme_to_titlebar(self, theme):
         version = sys.getwindowsversion()
-
         if version.major == 10 and version.build >= 22000:
-            # Set the title bar color to the background color on Windows 11 for better appearance
-            pywinstyles.change_header_color(self.master, "#1c1c1c" if sv_ttk.get_theme() == "dark" else "#fafafa")
+            pywinstyles.change_header_color(self.master, "#1c1c1c" if theme == "dark" else "#fafafa")
         elif version.major == 10:
-            pywinstyles.apply_style(self.master, "dark" if sv_ttk.get_theme() == "dark" else "normal")
-
-            # A hacky way to update the title bar's color on Windows 10 (it doesn't update instantly like on Windows 11)
+            pywinstyles.apply_style(self.master, "dark" if theme == "dark" else "normal")
             self.master.wm_attributes("-alpha", 0.99)
             self.master.wm_attributes("-alpha", 1)
 
@@ -82,8 +98,10 @@ class ImageSearchApp:
         # Image sample selection
         self.sample_image_button = ttk.Button(self.sidebar, text="🖼️ Select Sample Image", command=self.select_sample_image)
         self.sample_image_button.pack(fill=tk.X, pady=5)
-        self.sample_image_label = ttk.Label(self.sidebar, text="No image selected", wraplength=200)
+        self.sample_image_label = ttk.Label(self.sidebar, text="Drag and drop image here", wraplength=200)
         self.sample_image_label.pack(fill=tk.X, pady=5)
+        self.sample_image_label.drop_target_register(DND_FILES)
+        self.sample_image_label.dnd_bind('<<Drop>>', self.drop_sample_image)
         self.sample_image_display = ttk.Label(self.sidebar)
         self.sample_image_display.pack(fill=tk.X, pady=5)
 
@@ -116,38 +134,70 @@ class ImageSearchApp:
         self.create_scrollable_canvas(self.all_images_frame)
         self.create_scrollable_canvas(self.search_results_frame)
 
-    def create_scrollable_canvas(self, parent):
-        canvas = tk.Canvas(parent)
-        scrollbar_y = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(parent, orient="horizontal", command=canvas.xview)
-        scrollable_frame = ttk.Frame(canvas)
+        # Add dark mode toggle
+        self.dark_mode_check = ttk.Checkbutton(self.sidebar, text="Dark Mode", variable=self.theme_var, 
+                        command=self.toggle_theme, style="Switch.TCheckbutton")
+        self.dark_mode_check.pack(fill=tk.X, pady=5)
 
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
-        )
+        # Set initial state of the checkbutton
+        if self.theme_var.get() == "dark":
+            self.dark_mode_check.state(['selected'])
+        else:
+            self.dark_mode_check.state(['!selected'])
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+        # Add "Save Search Results" button
+        ttk.Button(self.sidebar, text="💾 Save Results", command=self.save_search_results).pack(fill=tk.X, pady=5)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_y.pack(side="right", fill="y")
-        scrollbar_x.pack(side="bottom", fill="x")
-
-        # Bind mouse wheel event to the canvas
-        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        canvas.bind("<Shift-MouseWheel>", lambda event: canvas.xview_scroll(int(-1 * (event.delta / 120)), "units"))
-
-        # Make sure the scrollable frame captures mouse events
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        def _on_shift_mousewheel(event):
-            canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+    def toggle_theme(self):
+        current_theme = sv_ttk.get_theme()
+        new_theme = "dark" if current_theme == "light" else "light"
+        self.theme_var.set(new_theme)
+        self.apply_theme(new_theme)
         
-        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
-        scrollable_frame.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+        # Update the checkbutton state
+        if new_theme == "dark":
+            self.dark_mode_check.state(['selected'])
+        else:
+            self.dark_mode_check.state(['!selected'])
+        
+        # Force update of all widgets
+        self.master.update_idletasks()
 
-        return canvas, scrollable_frame
+    def save_search_results(self):
+        if not hasattr(self, 'search_results'):
+            tk.messagebox.showinfo("Info", "No search results to save.")
+            return
+        
+        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
+        if file_path:
+            with open(file_path, 'w') as f:
+                json.dump(self.search_results, f)
+            tk.messagebox.showinfo("Success", f"Search results saved to {file_path}")
+
+    def select_sample_image(self):
+        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")])
+        self.set_sample_image(file_path)
+
+    def set_sample_image(self, file_path):
+        if file_path:
+            self.sample_image_path = file_path
+            self.sample_image_label.config(text=os.path.basename(file_path))
+            
+            img = Image.open(file_path)
+            img.thumbnail((150, 150))
+            photo = ImageTk.PhotoImage(img)
+            self.sample_image_display.config(image=photo)
+            self.sample_image_display.image = photo
+
+    def drop_sample_image(self, event):
+        file_path = event.data.strip("{}").split()[0]  # Get the first file if multiple are dropped
+        if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
+            self.set_sample_image(file_path)
+        else:
+            tk.messagebox.showwarning("Invalid File", "Please drop an image file.")
+
+    def update_threshold_label(self, *args):
+        self.threshold_label.config(text=f"Threshold: {self.similarity_threshold.get():.2f}")
 
     def select_folder(self):
         folder_path = filedialog.askdirectory()
@@ -171,36 +221,16 @@ class ImageSearchApp:
         self.progress_bar.pack_forget()
         self.display_all_images()
 
-    def select_sample_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")])
-        if file_path:
-            self.sample_image_path = file_path
-            self.sample_image_label.config(text=os.path.basename(file_path))
-            
-            # Display the selected image
-            img = Image.open(file_path)
-            img.thumbnail((150, 150))  # Resize image to fit in the sidebar
-            photo = ImageTk.PhotoImage(img)
-            self.sample_image_display.config(image=photo)
-            self.sample_image_display.image = photo  # Keep a reference
-
-    def update_threshold_label(self, *args):
-        self.threshold_label.config(text=f"Threshold: {self.similarity_threshold.get():.2f}")
-
     def search_images(self):
         search_type = self.search_option.get()
         query_text = self.search_entry.get()
 
-        if search_type == "Image Search" and not hasattr(self, 'sample_image_path'):
-            tk.messagebox.showwarning("Warning", "Please select a sample image for Image Search.")
+        if search_type in ["🖼️ Image Search", "🔀 Hybrid"] and not self.sample_image_path:
+            tk.messagebox.showwarning("Warning", "Please select a sample image for Image Search or Hybrid search.")
             return
         
-        if search_type in ["Text Search", "Hybrid"] and not query_text:
+        if search_type in ["📝 Text Search", "🔀 Hybrid"] and not query_text:
             tk.messagebox.showwarning("Warning", "Please enter a text query for Text Search or Hybrid search.")
-            return
-
-        if search_type == "Hybrid" and not hasattr(self, 'sample_image_path'):
-            tk.messagebox.showwarning("Warning", "Please select a sample image for Hybrid search.")
             return
 
         if not self.search_engine.image_features:
@@ -211,18 +241,17 @@ class ImageSearchApp:
         self.progress_bar.start()
 
         def search_thread():
-            if search_type == "Image Search":
+            if search_type == "🖼️ Image Search":
                 results = self.search_engine.search_by_image(self.sample_image_path)
-            elif search_type == "Text Search":
+            elif search_type == "📝 Text Search":
                 results = self.search_engine.search_by_text(query_text)
             else:  # Hybrid
                 results = self.search_engine.search_hybrid(self.sample_image_path, query_text)
             
-            # Filter results based on similarity threshold
             threshold = self.similarity_threshold.get()
-            filtered_results = [(path, score) for path, score in results if score >= threshold]
+            self.search_results = [(path, score) for path, score in results if score >= threshold]
             
-            self.master.after(0, self.search_finished, filtered_results)
+            self.master.after(0, self.search_finished, self.search_results)
 
         threading.Thread(target=search_thread, daemon=True).start()
 
@@ -293,11 +322,59 @@ class ImageSearchApp:
         elif os.name == 'posix':  # For macOS and Linux
             subprocess.call(['open', folder_path])
 
+    def create_scrollable_canvas(self, parent):
+        canvas = tk.Canvas(parent)
+        scrollbar_y = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
+        scrollbar_x = ttk.Scrollbar(parent, orient="horizontal", command=canvas.xview)
+        scrollable_frame = ttk.Frame(canvas)
+
+        scrollable_frame.bind(
+            "<Configure>",
+            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        )
+
+        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
+        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+
+        canvas.pack(side="left", fill="both", expand=True)
+        scrollbar_y.pack(side="right", fill="y")
+        scrollbar_x.pack(side="bottom", fill="x")
+
+        # Bind mouse wheel event to the canvas
+        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
+        canvas.bind("<Shift-MouseWheel>", lambda event: canvas.xview_scroll(int(-1 * (event.delta / 120)), "units"))
+
+        # Make sure the scrollable frame captures mouse events
+        def _on_mousewheel(event):
+            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
+        def _on_shift_mousewheel(event):
+            canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        
+        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
+        scrollable_frame.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+
+        return canvas, scrollable_frame
+
+    def load_cache(self):
+        cache_file = "image_features_cache.json"
+        if os.path.exists(cache_file):
+            with open(cache_file, 'r') as f:
+                cache_data = json.load(f)
+            self.search_engine.load_cache(cache_data)
+            self.display_all_images()  # Display cached images
+
+    def save_cache(self):
+        cache_file = "image_features_cache.json"
+        cache_data = self.search_engine.get_cache()
+        with open(cache_file, 'w') as f:
+            json.dump(cache_data, f)
+
 def main():
-    root = tk.Tk()
+    root = TkinterDnD.Tk()
     app = ImageSearchApp(root)
-    root.geometry("1200x800")  # Set initial window size
+    root.geometry("1200x800")
     root.mainloop()
+    app.save_cache()  # Save cache when closing the app
 
 if __name__ == "__main__":
     main()

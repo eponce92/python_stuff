@@ -25,5 +25,9 @@ REM Install required packages
 echo Installing required packages...
 pip install -r requirements.txt
 
+REM Add these lines after installing other packages
+echo Installing CLIP...
+pip install git+https://github.com/openai/CLIP.git
+
 echo Setup complete! You can now run the Image Search App.
 pause
