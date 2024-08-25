@@ -534,6 +534,7 @@ class ImageSearchApp:
         self.page.update()
 
 async def main(page: ft.Page):
+    page.window.icon = "assets/icon.ico"
     page.window.width = 1200
     page.window.height = 1200
     page.window.resizable = True
