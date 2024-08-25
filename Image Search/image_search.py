@@ -114,10 +114,12 @@ class ImageSearchEngine:
     def get_indexed_images(self):
         return list(self.image_features.keys())
 
-    def load_cache(self, cache_file):
-        with open(cache_file, 'rb') as f:
-            self.image_features = pickle.load(f)
+    def load_cache(self, cache_data):
+        self.image_features = {path: torch.tensor(features) for path, features in cache_data.items()}
 
     def save_cache(self, cache_file):
         with open(cache_file, 'wb') as f:
             pickle.dump(self.image_features, f)
+
+    def get_cache(self):
+        return {path: features.tolist() for path, features in self.image_features.items()}

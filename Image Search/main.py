@@ -16,11 +16,14 @@ import concurrent.futures
 if sys.platform == "win32":
     import pywinstyles
 
+os.environ['KMP_DUPLICATE_LIB_OK']='True'
+
 class ImageSearchApp:
     def __init__(self, master):
         self.master = master
         self.master.title("Image Search App")
         self.search_engine = ImageSearchEngine()
+        self.sample_image_path = None
 
         # Create theme variable
         self.theme_var = tk.StringVar(value=darkdetect.theme().lower())
@@ -241,17 +244,22 @@ class ImageSearchApp:
         self.progress_bar.start()
 
         def search_thread():
-            if search_type == "🖼️ Image Search":
-                results = self.search_engine.search_by_image(self.sample_image_path)
-            elif search_type == "📝 Text Search":
-                results = self.search_engine.search_by_text(query_text)
-            else:  # Hybrid
-                results = self.search_engine.search_hybrid(self.sample_image_path, query_text)
-            
-            threshold = self.similarity_threshold.get()
-            self.search_results = [(path, score) for path, score in results if score >= threshold]
-            
-            self.master.after(0, self.search_finished, self.search_results)
+            try:
+                if search_type == "🖼️ Image Search":
+                    results = self.search_engine.search_by_image(self.sample_image_path)
+                elif search_type == "📝 Text Search":
+                    results = self.search_engine.search_by_text(query_text)
+                else:  # Hybrid
+                    results = self.search_engine.search_hybrid(self.sample_image_path, query_text)
+                
+                threshold = self.similarity_threshold.get()
+                self.search_results = [(path, score) for path, score in results if score >= threshold]
+                
+                self.master.after(0, self.search_finished, self.search_results)
+            except Exception as e:
+                self.master.after(0, lambda e=e: tk.messagebox.showerror("Error", f"An error occurred during search: {str(e)}"))
+            finally:
+                self.master.after(0, lambda: self.progress_bar.pack_forget())
 
         threading.Thread(target=search_thread, daemon=True).start()
 
@@ -270,18 +278,22 @@ class ImageSearchApp:
         columns = 5  # You can adjust this number to change the number of columns
 
         for i, img_path in enumerate(indexed_images):
-            img = Image.open(img_path)
-            img.thumbnail((150, 150))  # Increased size for better visibility
-            photo = ImageTk.PhotoImage(img)
-            frame = ttk.Frame(scrollable_frame)
-            label = ttk.Label(frame, image=photo)
-            label.image = photo  # Keep a reference
-            label.pack(fill=tk.BOTH, expand=True)
-            ttk.Label(frame, text=os.path.basename(img_path), wraplength=150).pack()
-            frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
-            
-            # Bind double-click event to open folder
-            label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
+            try:
+                img = Image.open(img_path)
+                img.thumbnail((150, 150))  # Increased size for better visibility
+                photo = ImageTk.PhotoImage(img)
+                frame = ttk.Frame(scrollable_frame)
+                label = ttk.Label(frame, image=photo)
+                label.image = photo  # Keep a reference
+                label.pack(fill=tk.BOTH, expand=True)
+                ttk.Label(frame, text=os.path.basename(img_path), wraplength=150).pack()
+                frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
+                
+                # Bind double-click event to open folder
+                label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
+            except Exception as e:
+                print(f"Error loading image {img_path}: {str(e)}")
+                continue
 
         for i in range(columns):
             scrollable_frame.columnconfigure(i, weight=1)
@@ -297,18 +309,22 @@ class ImageSearchApp:
         columns = 5  # You can adjust this number to change the number of columns
 
         for i, (img_path, score) in enumerate(results):
-            img = Image.open(img_path)
-            img.thumbnail((150, 150))  # Increased size for better visibility
-            photo = ImageTk.PhotoImage(img)
-            frame = ttk.Frame(scrollable_frame)
-            label = ttk.Label(frame, image=photo)
-            label.image = photo  # Keep a reference
-            label.pack(fill=tk.BOTH, expand=True)
-            ttk.Label(frame, text=f"{os.path.basename(img_path)}\nScore: {score:.2f}", wraplength=150).pack()
-            frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
-            
-            # Bind double-click event to open folder
-            label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
+            try:
+                img = Image.open(img_path)
+                img.thumbnail((150, 150))  # Increased size for better visibility
+                photo = ImageTk.PhotoImage(img)
+                frame = ttk.Frame(scrollable_frame)
+                label = ttk.Label(frame, image=photo)
+                label.image = photo  # Keep a reference
+                label.pack(fill=tk.BOTH, expand=True)
+                ttk.Label(frame, text=f"{os.path.basename(img_path)}\nScore: {score:.2f}", wraplength=150).pack()
+                frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
+                
+                # Bind double-click event to open folder
+                label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
+            except Exception as e:
+                print(f"Error loading image {img_path}: {str(e)}")
+                continue
 
         for i in range(columns):
             scrollable_frame.columnconfigure(i, weight=1)
