@@ -35,6 +35,7 @@ class ImageSearchEngine:
             raise
         
         self.image_features = {}
+        self.image_dir = None
 
     def index_images(self, folder_path, progress_callback=None):
         print(f"Scanning folder: {folder_path}")
@@ -169,8 +170,14 @@ class ImageSearchEngine:
         return list(self.image_features.keys())
 
     def load_cache(self, cache_data):
+        if 'folder_path' in cache_data:
+            self.image_dir = cache_data['folder_path']
+            del cache_data['folder_path']
+        
         self.image_features = {path: torch.tensor(features) for path, features in cache_data.items()}
         print(f"Loaded {len(self.image_features)} items from cache")
 
     def get_cache(self):
-        return {path: features.tolist() for path, features in self.image_features.items()}
+        cache_data = {path: features.tolist() for path, features in self.image_features.items()}
+        cache_data['folder_path'] = self.image_dir
+        return cache_data

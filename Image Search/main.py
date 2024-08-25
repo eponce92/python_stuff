@@ -371,14 +371,19 @@ class ImageSearchApp:
     def load_cache(self):
         cache_file = "image_features_cache.json"
         if os.path.exists(cache_file):
-            with open(cache_file, 'r') as f:
-                cache_data = json.load(f)
-            self.search_engine.load_cache(cache_data)
-            
-            # Update the folder path if it's stored in the cache
-            if 'folder_path' in cache_data:
-                self.search_engine.image_dir = cache_data['folder_path']
-                self.folder_path_text.value = cache_data['folder_path']
+            try:
+                with open(cache_file, 'r') as f:
+                    cache_data = json.load(f)
+                self.search_engine.load_cache(cache_data)
+                
+                if 'folder_path' in cache_data:
+                    self.folder_path_text.value = cache_data['folder_path']
+            except json.JSONDecodeError:
+                print("Error decoding cache file. Starting with empty cache.")
+                self.search_engine.image_features = {}
+            except Exception as e:
+                print(f"Error loading cache: {str(e)}. Starting with empty cache.")
+                self.search_engine.image_features = {}
 
     def check_cache_status(self):
         if not self.search_engine.image_features:
@@ -407,16 +412,13 @@ class ImageSearchApp:
         cache_file = "image_features_cache.json"
         cache_data = self.search_engine.get_cache()
         
-        # Add the folder path to the cache data
-        cache_data['folder_path'] = self.search_engine.image_dir
-        
         with open(cache_file, 'w') as f:
             json.dump(cache_data, f)
 
 def main(page: ft.Page):
-    page.window_width = 1200  # Increase window width
-    page.window_height = 800  # Increase window height
-    page.window_resizable = True  # Allow window resizing
+    page.window.width = 1200  # Increase window width
+    page.window.height = 1000  # Increase window height
+    page.window.resizable = True  # Allow window resizing
     app = ImageSearchApp(page)
     page.on_close = app.save_cache
 
