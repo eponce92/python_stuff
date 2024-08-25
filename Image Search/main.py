@@ -39,6 +39,9 @@ class ImageSearchApp:
 
         # Load cached image features if available
         self.load_cache()
+        
+        # Check if cache is empty and update UI
+        self.check_cache_status()
 
     def create_layout(self):
         # Sidebar controls
@@ -68,7 +71,7 @@ class ImageSearchApp:
             color=ft.colors.ON_SURFACE,
         )
         self.similarity_slider = ft.Slider(
-            min=70,
+            min=0,
             max=100,
             value=70,
             divisions=30,
@@ -346,7 +349,13 @@ class ImageSearchApp:
             with open(cache_file, 'r') as f:
                 cache_data = json.load(f)
             self.search_engine.load_cache(cache_data)
-            self.display_all_images()  # Display cached images
+
+    def check_cache_status(self):
+        if not self.search_engine.image_features:
+            self.folder_path_text.value = "No images indexed. Please select a folder to index."
+            self.page.update()
+        else:
+            self.display_all_images()
 
     def update_similarity_value(self, e):
         self.similarity_threshold = e.control.value / 100
