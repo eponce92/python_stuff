@@ -6,3 +6,4 @@ sv-ttk
 darkdetect
 pywinstyles
 tkinterdnd2
+flet
