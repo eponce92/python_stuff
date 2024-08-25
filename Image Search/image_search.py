@@ -127,10 +127,27 @@ class ImageSearchEngine:
             # Normalize the text features
             text_features = text_features / text_features.norm(dim=-1, keepdim=True)
             
-            return self._calculate_similarities(text_features.cpu())
+            return self._calculate_similarities(text_features.cpu(), is_text_search=True)
         except Exception as e:
             print(f"Error in search_by_text: {str(e)}")
             raise
+
+    def _calculate_similarities(self, query_features, is_text_search=False):
+        similarities = {}
+        for path, features in self.image_features.items():
+            similarity = torch.cosine_similarity(query_features, features.unsqueeze(0))
+            similarities[path] = similarity.item()
+        
+        # Adjust minimum similarity threshold for text searches
+        min_similarity = 0.2 if is_text_search else 0.7
+        filtered_similarities = {k: v for k, v in similarities.items() if v >= min_similarity}
+        
+        # Debug: Print similarity scores
+        print(f"Number of results before filtering: {len(similarities)}")
+        print(f"Number of results after filtering: {len(filtered_similarities)}")
+        print(f"Top 5 similarity scores: {sorted(similarities.values(), reverse=True)[:5]}")
+        
+        return sorted(filtered_similarities.items(), key=lambda x: x[1], reverse=True)
 
     def search_hybrid(self, query_image_path, query_text):
         print(f"Performing hybrid search with image: {query_image_path} and text: {query_text}")
@@ -147,19 +164,6 @@ class ImageSearchEngine:
         except Exception as e:
             print(f"Error in search_hybrid: {str(e)}")
             raise
-
-    def _calculate_similarities(self, query_features):
-        similarities = {}
-        for path, features in self.image_features.items():
-            # Use the stored features directly, as they are already normalized
-            similarity = torch.cosine_similarity(query_features, features.unsqueeze(0))
-            similarities[path] = similarity.item()
-        
-        # Change 3: Add a minimum similarity threshold
-        min_similarity = 0.7  # Adjust this value as needed
-        filtered_similarities = {k: v for k, v in similarities.items() if v >= min_similarity}
-        
-        return sorted(filtered_similarities.items(), key=lambda x: x[1], reverse=True)
 
     def get_indexed_images(self):
         return list(self.image_features.keys())

@@ -8,6 +8,9 @@ import queue
 import json
 import subprocess
 import platform
+from PIL import Image
+import io
+import base64
 
 class ImageSearchApp:
     def __init__(self, page: ft.Page):
@@ -18,6 +21,7 @@ class ImageSearchApp:
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
         self.similarity_threshold = 0.7  # Updated default value
+        self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.CONTAIN, visible=False)
 
         # Set theme
         self.theme = darkdetect.theme().lower()
@@ -50,11 +54,11 @@ class ImageSearchApp:
         self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)
         self.search_option = ft.Dropdown(
             options=[
-                ft.dropdown.Option("Image Search"),
-                ft.dropdown.Option("Text Search"),
-                ft.dropdown.Option("Hybrid"),
+                ft.dropdown.Option("🖼️ Image Search"),
+                ft.dropdown.Option("🔤 Text Search"),
+                ft.dropdown.Option("👾 Hybrid Search"),  # Using a monster emoji for Hybrid
             ],
-            value="Text Search",
+            value="🔤 Text Search",
             width=280,
         )
         self.search_entry = ft.TextField(
@@ -75,10 +79,11 @@ class ImageSearchApp:
             max=100,
             value=70,
             divisions=30,
-            label="{value}%",
+            label="{value}",
             width=280,
             on_change=self.update_similarity_value
         )
+        self.similarity_threshold_text = ft.Text("Similarity Threshold: 70%", size=14)
         
         def create_step_card(title, content):
             return ft.Card(
@@ -101,15 +106,16 @@ class ImageSearchApp:
             ]),
             create_step_card("Step 2: Choose Search Method", [
                 self.search_option,
-                ft.ElevatedButton("🖼️ Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
+                ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
                 self.sample_image_text,
+                self.sample_image_preview,
             ]),
             create_step_card("Step 3: Enter Search Query", [
                 self.search_entry,
             ]),
             create_step_card("Step 4: Adjust Settings", [
                 self.similarity_slider,
-                ft.Text("Similarity Threshold", size=14),
+                self.similarity_threshold_text,
             ]),
             create_step_card("Step 5: Perform Search", [
                 ft.ElevatedButton("🔍 Search", on_click=self.search_images, width=280),
@@ -117,7 +123,7 @@ class ImageSearchApp:
             create_step_card("Additional Options", [
                 ft.Switch(label="🌙 Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
             ]),
-        ], width=300, scroll=ft.ScrollMode.AUTO)
+        ], width=300, scroll=ft.ScrollMode.AUTO, height=700)
 
         # Image galleries
         self.all_images_grid = ft.GridView(expand=1, max_extent=200, child_aspect_ratio=0.8)
@@ -129,7 +135,7 @@ class ImageSearchApp:
             ft.Divider(),
             ft.Text("Search Results", size=16, weight=ft.FontWeight.BOLD),
             self.search_results_grid,
-        ], expand=True, spacing=20)
+        ], expand=True, spacing=20, height=700)
 
         # Main layout
         self.page.add(
@@ -151,6 +157,17 @@ class ImageSearchApp:
         if e.files:
             self.sample_image_path = e.files[0].path
             self.sample_image_text.value = os.path.basename(self.sample_image_path)
+            
+            # Create a preview of the selected image
+            img = Image.open(self.sample_image_path)
+            img.thumbnail((100, 100))  # Resize the image while maintaining aspect ratio
+            buf = io.BytesIO()
+            img.save(buf, format='PNG')
+            buf.seek(0)
+            
+            self.sample_image_preview.src_base64 = base64.b64encode(buf.getvalue()).decode()
+            self.sample_image_preview.visible = True
+            
             self.page.update()
 
     def index_and_display_images(self, folder_path):
@@ -213,11 +230,11 @@ class ImageSearchApp:
         self.check_search_status()
 
     def validate_search_inputs(self, search_type, query_text):
-        if search_type in ["Image Search", "Hybrid"] and not self.sample_image_path:
+        if search_type in ["🖼️ Image Search", "👾 Hybrid Search"] and not self.sample_image_path:
             self.show_error("Please select a sample image for Image Search or Hybrid search.")
             return False
         
-        if search_type in ["Text Search", "Hybrid"] and not query_text:
+        if search_type in ["🔤 Text Search", "👾 Hybrid Search"] and not query_text:
             self.show_error("Please enter a text query for Text Search or Hybrid search.")
             return False
 
@@ -255,11 +272,11 @@ class ImageSearchApp:
             Timer(0.1, self.check_search_status).start()
 
     def perform_search(self, search_type, query_text):
-        if search_type == "Image Search":
+        if search_type == "🖼️ Image Search":
             return self.search_engine.search_by_image(self.sample_image_path)
-        elif search_type == "Text Search":
+        elif search_type == "🔤 Text Search":
             return self.search_engine.search_by_text(query_text)
-        else:  # Hybrid
+        else:  # 👾 Hybrid Search
             return self.search_engine.search_hybrid(self.sample_image_path, query_text)
 
     def search_finished(self, results):
@@ -359,6 +376,7 @@ class ImageSearchApp:
 
     def update_similarity_value(self, e):
         self.similarity_threshold = e.control.value / 100
+        self.similarity_threshold_text.value = f"Similarity Threshold: {e.control.value}%"
         self.page.update()
 
     def open_file_location(self, image_path):
@@ -378,6 +396,9 @@ class ImageSearchApp:
             json.dump(cache_data, f)
 
 def main(page: ft.Page):
+    page.window_width = 1200  # Increase window width
+    page.window_height = 800  # Increase window height
+    page.window_resizable = True  # Allow window resizing
     app = ImageSearchApp(page)
     page.on_close = app.save_cache
 
