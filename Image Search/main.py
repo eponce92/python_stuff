@@ -24,7 +24,7 @@ class ImageSearchApp:
         self.sample_image_path = None
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
-        self.similarity_threshold = 0.7
+        self.similarity_threshold = 0.15
         self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.COVER, border_radius=ft.border_radius.all(10), visible=False)
 
         # Set theme
@@ -78,8 +78,7 @@ class ImageSearchApp:
     def create_layout(self):
         # Sidebar controls
         self.folder_path_text = ft.Text("No folder selected", style=ft.TextThemeStyle.BODY_SMALL)
-        self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)
-        self.search_type_text = ft.Text("Search Type:", size=16, weight=ft.FontWeight.BOLD)
+        self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)        
         self.text_search_switch = ft.CupertinoSwitch(
             label="🔤 Text",
             value=True,
@@ -107,6 +106,7 @@ class ImageSearchApp:
             focused_border_color=ft.colors.PRIMARY,
             focused_color=None,
             color=ft.colors.ON_SURFACE,
+            on_submit=self.search_images, 
         )
         self.similarity_slider = ft.Slider(
             min=0,
@@ -156,8 +156,7 @@ class ImageSearchApp:
                 self.folder_path_text,
                 self.progress_bar,
             ]),
-            create_step_card("Step 2: Choose Search Method", [
-                self.search_type_text,
+            create_step_card("Step 2: Choose Search Method", [                
                 self.text_search_switch,
                 self.image_search_switch,
                 self.hybrid_search_switch,
@@ -536,8 +535,9 @@ class ImageSearchApp:
 
 async def main(page: ft.Page):
     page.window.width = 1200
-    page.window.height = 1000
+    page.window.height = 1200
     page.window.resizable = True
+    page.window.center()  # Add this line to center the window
     app = ImageSearchApp(page)
     # Wait for the initialization to complete
     await app.initialize_task
