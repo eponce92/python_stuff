@@ -21,7 +21,7 @@ class ImageSearchApp:
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
         self.similarity_threshold = 0.7  # Updated default value
-        self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.CONTAIN, visible=False)
+        self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.COVER, border_radius=ft.border_radius.all(10), visible=False)
 
         # Set theme
         self.theme = darkdetect.theme().lower()
@@ -50,16 +50,15 @@ class ImageSearchApp:
     def create_layout(self):
         # Sidebar controls
         self.folder_path_text = ft.Text("No folder selected", style=ft.TextThemeStyle.BODY_SMALL)
-        self.sample_image_text = ft.Text("No sample image selected", style=ft.TextThemeStyle.BODY_SMALL)
         self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)
         self.search_option = ft.Dropdown(
-            options=[
-                ft.dropdown.Option("🖼️ Image Search"),
-                ft.dropdown.Option("🔤 Text Search"),
-                ft.dropdown.Option("👾 Hybrid Search"),  # Using a monster emoji for Hybrid
-            ],
-            value="🔤 Text Search",
             width=280,
+            options=[
+                ft.dropdown.Option("🖼️ Image"),
+                ft.dropdown.Option("🔤 Text"),
+                ft.dropdown.Option("👾 Hybrid"),
+            ],
+            value="🔤 Text",
         )
         self.search_entry = ft.TextField(
             label="Text Search",
@@ -83,7 +82,7 @@ class ImageSearchApp:
             width=280,
             on_change=self.update_similarity_value
         )
-        self.similarity_threshold_text = ft.Text("Similarity Threshold: 70%", size=14)
+        self.similarity_threshold_text = ft.Text("Similarity Threshold: 70.00%", size=14)
         
         def create_step_card(title, content):
             return ft.Card(
@@ -106,24 +105,33 @@ class ImageSearchApp:
             ]),
             create_step_card("Step 2: Choose Search Method", [
                 self.search_option,
-                ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
-                self.sample_image_text,
-                self.sample_image_preview,
             ]),
-            create_step_card("Step 3: Enter Search Query", [
+            create_step_card("Step 3: Select Sample Image", [
+                ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
+                ft.Container(
+                    content=self.sample_image_preview,
+                    alignment=ft.alignment.center
+                ),
+            ]),
+            create_step_card("Step 4: Enter Search Query", [
                 self.search_entry,
             ]),
-            create_step_card("Step 4: Adjust Settings", [
+            create_step_card("Step 5: Adjust Settings", [
                 self.similarity_slider,
                 self.similarity_threshold_text,
             ]),
-            create_step_card("Step 5: Perform Search", [
+            create_step_card("Step 6: Perform Search", [
                 ft.ElevatedButton("🔍 Search", on_click=self.search_images, width=280),
             ]),
             create_step_card("Additional Options", [
-                ft.Switch(label="🌙 Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
+                ft.Switch(
+                    label="🌙 Dark Mode" if self.page.theme_mode == ft.ThemeMode.LIGHT else "☀️ Light Mode",
+                    value=self.page.theme_mode == ft.ThemeMode.DARK,
+                    on_change=self.toggle_theme,
+                    label_position=ft.LabelPosition.LEFT
+                ),
             ]),
-        ], width=300, scroll=ft.ScrollMode.AUTO, height=700)
+        ], width=300, scroll=ft.ScrollMode.AUTO)
 
         # Image galleries
         self.all_images_grid = ft.GridView(expand=1, max_extent=200, child_aspect_ratio=0.8)
@@ -135,15 +143,15 @@ class ImageSearchApp:
             ft.Divider(),
             ft.Text("Search Results", size=16, weight=ft.FontWeight.BOLD),
             self.search_results_grid,
-        ], expand=True, spacing=20, height=700)
+        ], expand=True, spacing=20)
 
         # Main layout
         self.page.add(
             ft.Row([
-                ft.Container(sidebar, width=300, padding=10),
+                ft.Container(sidebar, width=300, padding=10, alignment=ft.alignment.top_left),
                 ft.VerticalDivider(width=1),
                 ft.Container(main_content, expand=True, padding=10),
-            ], expand=True)
+            ], expand=True, alignment=ft.MainAxisAlignment.START)
         )
 
     def folder_picker_result(self, e: ft.FilePickerResultEvent):
@@ -156,7 +164,6 @@ class ImageSearchApp:
     def file_picker_result(self, e: ft.FilePickerResultEvent):
         if e.files:
             self.sample_image_path = e.files[0].path
-            self.sample_image_text.value = os.path.basename(self.sample_image_path)
             
             # Create a preview of the selected image
             img = Image.open(self.sample_image_path)
@@ -186,6 +193,7 @@ class ImageSearchApp:
                 self.search_engine.index_images(folder_path, progress_callback)
                 print("Indexing completed successfully")
                 self.indexing_queue.put(("finished", None))
+                self.save_cache()  # Save cache after indexing
             except Exception as e:
                 print(f"Error during indexing: {str(e)}")
                 self.indexing_queue.put(("error", str(e)))
@@ -230,11 +238,11 @@ class ImageSearchApp:
         self.check_search_status()
 
     def validate_search_inputs(self, search_type, query_text):
-        if search_type in ["🖼️ Image Search", "👾 Hybrid Search"] and not self.sample_image_path:
+        if search_type in ["🖼️ Image", "👾 Hybrid"] and not self.sample_image_path:
             self.show_error("Please select a sample image for Image Search or Hybrid search.")
             return False
         
-        if search_type in ["🔤 Text Search", "👾 Hybrid Search"] and not query_text:
+        if search_type in ["🔤 Text", "👾 Hybrid"] and not query_text:
             self.show_error("Please enter a text query for Text Search or Hybrid search.")
             return False
 
@@ -272,11 +280,11 @@ class ImageSearchApp:
             Timer(0.1, self.check_search_status).start()
 
     def perform_search(self, search_type, query_text):
-        if search_type == "🖼️ Image Search":
+        if search_type == "🖼️ Image":
             return self.search_engine.search_by_image(self.sample_image_path)
-        elif search_type == "🔤 Text Search":
+        elif search_type == "🔤 Text":
             return self.search_engine.search_by_text(query_text)
-        else:  # 👾 Hybrid Search
+        else:  # 👾 Hybrid
             return self.search_engine.search_hybrid(self.sample_image_path, query_text)
 
     def search_finished(self, results):
@@ -366,17 +374,23 @@ class ImageSearchApp:
             with open(cache_file, 'r') as f:
                 cache_data = json.load(f)
             self.search_engine.load_cache(cache_data)
+            
+            # Update the folder path if it's stored in the cache
+            if 'folder_path' in cache_data:
+                self.search_engine.image_dir = cache_data['folder_path']
+                self.folder_path_text.value = cache_data['folder_path']
 
     def check_cache_status(self):
         if not self.search_engine.image_features:
             self.folder_path_text.value = "No images indexed. Please select a folder to index."
-            self.page.update()
         else:
+            self.folder_path_text.value = f"Loaded {len(self.search_engine.image_features)} images from cache"
             self.display_all_images()
+        self.page.update()
 
     def update_similarity_value(self, e):
         self.similarity_threshold = e.control.value / 100
-        self.similarity_threshold_text.value = f"Similarity Threshold: {e.control.value}%"
+        self.similarity_threshold_text.value = f"Similarity Threshold: {e.control.value:.2f}%"
         self.page.update()
 
     def open_file_location(self, image_path):
@@ -392,6 +406,10 @@ class ImageSearchApp:
     def save_cache(self):
         cache_file = "image_features_cache.json"
         cache_data = self.search_engine.get_cache()
+        
+        # Add the folder path to the cache data
+        cache_data['folder_path'] = self.search_engine.image_dir
+        
         with open(cache_file, 'w') as f:
             json.dump(cache_data, f)
 
