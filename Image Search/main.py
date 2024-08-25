@@ -11,21 +11,26 @@ import platform
 from PIL import Image
 import io
 import base64
+import asyncio
 
 class ImageSearchApp:
     def __init__(self, page: ft.Page):
         self.page = page
         self.page.title = "Image Search App"
-        self.search_engine = ImageSearchEngine()
+        self.search_engine = None  # We'll initialize this later
         self.sample_image_path = None
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
-        self.similarity_threshold = 0.7  # Updated default value
+        self.similarity_threshold = 0.7
         self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.COVER, border_radius=ft.border_radius.all(10), visible=False)
 
         # Set theme
         self.theme = darkdetect.theme().lower()
         self.page.theme_mode = ft.ThemeMode.DARK if self.theme == "dark" else ft.ThemeMode.LIGHT
+
+        # Add these color definitions before create_layout is called
+        self.primary_color = ft.colors.BLUE_600 if self.page.theme_mode == ft.ThemeMode.LIGHT else ft.colors.BLUE_400
+        self.button_text_color = ft.colors.WHITE
 
         # Create FilePicker instances
         self.folder_picker = ft.FilePicker(on_result=self.folder_picker_result)
@@ -41,11 +46,31 @@ class ImageSearchApp:
         # Create main layout
         self.create_layout()
 
+        # Add a loading indicator
+        self.loading_indicator = ft.ProgressRing()
+        self.loading_text = ft.Text("Loading CLIP model and cache...")
+        self.loading_row = ft.Row([self.loading_indicator, self.loading_text])
+        self.page.add(self.loading_row)
+
+        # Instead of creating a task, we'll call initialize directly
+        self.initialize_task = self.initialize()
+
+    async def initialize(self):
+        # Initialize the search engine
+        self.search_engine = ImageSearchEngine()
+        
         # Load cached image features if available
-        self.load_cache()
+        await asyncio.to_thread(self.load_cache)
         
         # Check if cache is empty and update UI
         self.check_cache_status()
+
+        # Update button styles
+        self.update_button_styles()
+
+        # Remove the loading indicator
+        self.page.remove(self.loading_row)
+        self.page.update()
 
     def create_layout(self):
         # Sidebar controls
@@ -54,11 +79,16 @@ class ImageSearchApp:
         self.search_option = ft.Dropdown(
             width=280,
             options=[
-                ft.dropdown.Option("🖼️ Image"),
-                ft.dropdown.Option("🔤 Text"),
-                ft.dropdown.Option("👾 Hybrid"),
+                ft.dropdown.Option("Text"),
+                ft.dropdown.Option("Image"),
+                ft.dropdown.Option("Hybrid"),
             ],
-            value="🔤 Text",
+            label="Search Method",
+            hint_text="Choose search method",
+            autofocus=True,
+            filled=True,
+            dense=True,
+            expand=1
         )
         self.search_entry = ft.TextField(
             label="Text Search",
@@ -96,10 +126,28 @@ class ImageSearchApp:
                 margin=ft.margin.only(bottom=10),
             )
 
+        # Update the button style
+        button_style = {
+            "bgcolor": self.primary_color,
+            "color": self.button_text_color,
+            "style": ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                elevation=2,
+            ),
+        }
+
+        self.theme_switch = ft.Switch(
+            label="🌙 Dark Mode" if self.page.theme_mode == ft.ThemeMode.LIGHT else "☀️ Light Mode",
+            value=self.page.theme_mode == ft.ThemeMode.DARK,
+            on_change=self.toggle_theme,
+            label_position=ft.LabelPosition.LEFT,
+            width=280,
+        )
+
         sidebar = ft.Column([
             ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
             create_step_card("Step 1: Select Images", [
-                ft.ElevatedButton("📁 Select Folder", on_click=lambda _: self.folder_picker.get_directory_path(), width=280),
+                ft.ElevatedButton("📁 Select Folder", on_click=lambda _: self.folder_picker.get_directory_path(), width=280, **button_style),
                 self.folder_path_text,
                 self.progress_bar,
             ]),
@@ -107,7 +155,7 @@ class ImageSearchApp:
                 self.search_option,
             ]),
             create_step_card("Step 3: Select Sample Image", [
-                ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
+                ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280, **button_style),
                 ft.Container(
                     content=self.sample_image_preview,
                     alignment=ft.alignment.center
@@ -121,14 +169,13 @@ class ImageSearchApp:
                 self.similarity_threshold_text,
             ]),
             create_step_card("Step 6: Perform Search", [
-                ft.ElevatedButton("🔍 Search", on_click=self.search_images, width=280),
+                ft.ElevatedButton("🔍 Search", on_click=self.search_images, width=280, **button_style),
             ]),
             create_step_card("Additional Options", [
-                ft.Switch(
-                    label="🌙 Dark Mode" if self.page.theme_mode == ft.ThemeMode.LIGHT else "☀️ Light Mode",
-                    value=self.page.theme_mode == ft.ThemeMode.DARK,
-                    on_change=self.toggle_theme,
-                    label_position=ft.LabelPosition.LEFT
+                ft.Container(
+                    content=self.theme_switch,
+                    alignment=ft.alignment.center,
+                    width=280,
                 ),
             ]),
         ], width=300, scroll=ft.ScrollMode.AUTO)
@@ -238,11 +285,11 @@ class ImageSearchApp:
         self.check_search_status()
 
     def validate_search_inputs(self, search_type, query_text):
-        if search_type in ["🖼️ Image", "👾 Hybrid"] and not self.sample_image_path:
+        if search_type in ["Image", "Hybrid"] and not self.sample_image_path:
             self.show_error("Please select a sample image for Image Search or Hybrid search.")
             return False
         
-        if search_type in ["🔤 Text", "👾 Hybrid"] and not query_text:
+        if search_type in ["Text", "Hybrid"] and not query_text:
             self.show_error("Please enter a text query for Text Search or Hybrid search.")
             return False
 
@@ -280,11 +327,11 @@ class ImageSearchApp:
             Timer(0.1, self.check_search_status).start()
 
     def perform_search(self, search_type, query_text):
-        if search_type == "🖼️ Image":
+        if search_type == "Image":
             return self.search_engine.search_by_image(self.sample_image_path)
-        elif search_type == "🔤 Text":
+        elif search_type == "Text":
             return self.search_engine.search_by_text(query_text)
-        else:  # 👾 Hybrid
+        else:  # Hybrid
             return self.search_engine.search_hybrid(self.sample_image_path, query_text)
 
     def search_finished(self, results):
@@ -350,6 +397,7 @@ class ImageSearchApp:
                 on_double_tap=create_on_double_tap(img_path)
             )
             
+                        
             self.search_results_grid.controls.append(
                 ft.Container(
                     content=ft.Column([
@@ -366,7 +414,38 @@ class ImageSearchApp:
 
     def toggle_theme(self, e):
         self.page.theme_mode = ft.ThemeMode.DARK if e.control.value else ft.ThemeMode.LIGHT
+        self.primary_color = ft.colors.BLUE_400 if self.page.theme_mode == ft.ThemeMode.DARK else ft.colors.BLUE_600
+        
+        # Update button styles
+        self.update_button_styles()
+        
+        # Update theme switch label
+        self.theme_switch.label = "☀️ Light Mode" if self.page.theme_mode == ft.ThemeMode.DARK else "🌙 Dark Mode"
+        
         self.page.update()
+
+    def update_button_styles(self):
+        button_style = {
+            "bgcolor": self.primary_color,
+            "color": self.button_text_color,
+            "style": ft.ButtonStyle(
+                shape=ft.RoundedRectangleBorder(radius=8),
+                elevation=2,
+            ),
+        }
+        
+        # Update all buttons with the new style
+        for control in self.page.controls:
+            if isinstance(control, ft.Row):
+                for container in control.controls:
+                    if isinstance(container, ft.Container):
+                        for column in container.content.controls:
+                            if isinstance(column, ft.Card):
+                                for button in column.content.content.controls:
+                                    if isinstance(button, ft.ElevatedButton):
+                                        button.bgcolor = self.primary_color
+                                        button.color = self.button_text_color
+                                        button.style = button_style["style"]
 
     def load_cache(self):
         cache_file = "image_features_cache.json"
@@ -415,11 +494,14 @@ class ImageSearchApp:
         with open(cache_file, 'w') as f:
             json.dump(cache_data, f)
 
-def main(page: ft.Page):
-    page.window.width = 1200  # Increase window width
-    page.window.height = 1000  # Increase window height
-    page.window.resizable = True  # Allow window resizing
+async def main(page: ft.Page):
+    page.window.width = 1200
+    page.window.height = 1000
+    page.window.resizable = True
     app = ImageSearchApp(page)
+    # Wait for the initialization to complete
+    await app.initialize_task
     page.on_close = app.save_cache
 
+# Use ft.app with an asynchronous target
 ft.app(target=main)
