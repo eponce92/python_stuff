@@ -28,6 +28,12 @@ class ImageSearchApp:
         self.file_picker = ft.FilePicker(on_result=self.file_picker_result)
         self.page.overlay.extend([self.folder_picker, self.file_picker])
 
+        # Add this line to enable the use of icons
+        page.fonts = {
+            "Roboto": "https://github.com/google/fonts/raw/main/apache/roboto/static/Roboto-Regular.ttf",
+            "MaterialIcons": "https://github.com/google/material-design-icons/raw/master/font/MaterialIcons-Regular.ttf",
+        }
+
         # Create main layout
         self.create_layout()
 
@@ -74,13 +80,13 @@ class ImageSearchApp:
         sidebar = ft.Column([
             ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
             create_step_card("Step 1: Select Images", [
-                ft.ElevatedButton("Select Folder", on_click=lambda _: self.folder_picker.get_directory_path(), width=280),
+                ft.ElevatedButton("Select Folder", on_click=lambda _: self.folder_picker.get_directory_path(), width=280, icon=ft.icons.FOLDER_OPEN),
                 self.folder_path_text,
                 self.progress_bar,
             ]),
             create_step_card("Step 2: Choose Search Method", [
                 self.search_option,
-                ft.ElevatedButton("Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
+                ft.ElevatedButton("Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280, icon=ft.icons.IMAGE),
                 self.sample_image_text,
             ]),
             create_step_card("Step 3: Enter Search Query", [
@@ -91,12 +97,12 @@ class ImageSearchApp:
                 ft.Text("Similarity Threshold", size=14),
             ]),
             create_step_card("Step 5: Perform Search", [
-                ft.ElevatedButton("Search", on_click=self.search_images, width=280),
+                ft.ElevatedButton("Search", on_click=self.search_images, width=280, icon=ft.icons.SEARCH),
             ]),
             create_step_card("Additional Options", [
                 ft.Row([
                     ft.Switch(label="Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
-                    ft.ElevatedButton("Save Results", on_click=self.save_search_results),
+                    ft.ElevatedButton("Save Results", on_click=self.save_search_results, icon=ft.icons.SAVE),
                 ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=280),
             ]),
         ], width=300, scroll=ft.ScrollMode.AUTO)
@@ -277,10 +283,11 @@ class ImageSearchApp:
                     content=ft.Column([
                         gesture_detector,
                         ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
+                        ft.Icon(ft.icons.OPEN_IN_NEW, size=16, tooltip="Double-click to open file location"),
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                     padding=10,
                     margin=ft.margin.all(5),
-                    height=200,  # Set a fixed height for each container
+                    height=220,  # Increased height to accommodate the icon
                 )
             )
         self.page.update()
@@ -313,10 +320,11 @@ class ImageSearchApp:
                         gesture_detector,
                         ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
                         ft.Text(f"Score: {score:.2f}", size=12, text_align=ft.TextAlign.CENTER),
+                        ft.Icon(ft.icons.OPEN_IN_NEW, size=16, tooltip="Double-click to open file location"),
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
                     padding=10,
                     margin=ft.margin.all(5),
-                    height=220,  # Set a fixed height for each container, slightly taller to accommodate the score
+                    height=240,  # Increased height to accommodate the icon
                 )
             )
         self.page.update()
