@@ -1,375 +1,333 @@
-import tkinter as tk
-from tkinter import filedialog, ttk
-from PIL import Image, ImageTk
-import os
+import flet as ft
+from threading import Timer
 from image_search import ImageSearchEngine
+import os
 import threading
-import subprocess
-import sv_ttk
 import darkdetect
-import sys
+import queue
 import json
-from tkinterdnd2 import DND_FILES, TkinterDnD
-import concurrent.futures
-
-# Only import pywinstyles on Windows
-if sys.platform == "win32":
-    import pywinstyles
-
-os.environ['KMP_DUPLICATE_LIB_OK']='True'
+import subprocess
+import platform
 
 class ImageSearchApp:
-    def __init__(self, master):
-        self.master = master
-        self.master.title("Image Search App")
+    def __init__(self, page: ft.Page):
+        self.page = page
+        self.page.title = "Image Search App"
         self.search_engine = ImageSearchEngine()
         self.sample_image_path = None
+        self.indexing_queue = queue.Queue()
+        self.search_queue = queue.Queue()
+        self.similarity_threshold = 0.5  # Default value
 
-        # Create theme variable
-        self.theme_var = tk.StringVar(value=darkdetect.theme().lower())
+        # Set theme
+        self.theme = darkdetect.theme().lower()
+        self.page.theme_mode = ft.ThemeMode.DARK if self.theme == "dark" else ft.ThemeMode.LIGHT
 
-        # Apply Sun Valley theme
-        self.apply_theme(self.theme_var.get())
+        # Create FilePicker instances
+        self.folder_picker = ft.FilePicker(on_result=self.folder_picker_result)
+        self.file_picker = ft.FilePicker(on_result=self.file_picker_result)
+        self.page.overlay.extend([self.folder_picker, self.file_picker])
 
-        # Create main frame
-        self.main_frame = ttk.Frame(self.master)
-        self.main_frame.pack(fill=tk.BOTH, expand=True)
-
-        # Create and place widgets
-        self.create_widgets()
+        # Create main layout
+        self.create_layout()
 
         # Load cached image features if available
         self.load_cache()
 
-    def apply_theme(self, theme):
-        sv_ttk.set_theme(theme)
-        if sys.platform == "win32":
-            self.apply_theme_to_titlebar(theme)
-        
-        # Update the theme variable
-        self.theme_var.set(theme)
-        
-        # Update the checkbutton state if it exists
-        if hasattr(self, 'dark_mode_check'):
-            if theme == "dark":
-                self.dark_mode_check.state(['selected'])
-            else:
-                self.dark_mode_check.state(['!selected'])
-
-    def apply_theme_to_titlebar(self, theme):
-        version = sys.getwindowsversion()
-        if version.major == 10 and version.build >= 22000:
-            pywinstyles.change_header_color(self.master, "#1c1c1c" if theme == "dark" else "#fafafa")
-        elif version.major == 10:
-            pywinstyles.apply_style(self.master, "dark" if theme == "dark" else "normal")
-            self.master.wm_attributes("-alpha", 0.99)
-            self.master.wm_attributes("-alpha", 1)
-
-    def create_widgets(self):
-        # Create left sidebar
-        self.sidebar = ttk.Frame(self.main_frame, padding="10")
-        self.sidebar.pack(side=tk.LEFT, fill=tk.Y)
-
-        # Create right frame for image galleries
-        self.gallery_frame = ttk.Frame(self.main_frame)
-        self.gallery_frame.pack(side=tk.RIGHT, fill=tk.BOTH, expand=True)
-
+    def create_layout(self):
         # Sidebar controls
-        ttk.Label(self.sidebar, text="Image Search App", font=('Arial', 16, 'bold')).pack(pady=10)
+        self.folder_path_text = ft.Text("No folder selected", style=ft.TextThemeStyle.BODY_SMALL)
+        self.sample_image_text = ft.Text("No sample image selected", style=ft.TextThemeStyle.BODY_SMALL)
+        self.progress_bar = ft.ProgressBar(width=280, value=0, visible=False)
+        self.search_option = ft.Dropdown(
+            options=[
+                ft.dropdown.Option("Image Search"),
+                ft.dropdown.Option("Text Search"),
+                ft.dropdown.Option("Hybrid"),
+            ],
+            value="Text Search",
+            width=280,
+        )
+        self.search_entry = ft.TextField(label="Text Search", width=280)
+        self.similarity_slider = ft.Slider(
+            min=0,
+            max=100,
+            value=50,  # Default to 50%
+            divisions=100,
+            label="{value}%",
+            width=280,
+            on_change=self.update_similarity_value
+        )
+        
+        def create_step_card(title, content):
+            return ft.Card(
+                content=ft.Container(
+                    content=ft.Column([
+                        ft.Text(title, size=16, weight=ft.FontWeight.BOLD),
+                        *content
+                    ]),
+                    padding=10,
+                ),
+                margin=ft.margin.only(bottom=10),
+            )
 
-        # Folder selection section
-        ttk.Separator(self.sidebar, orient='horizontal').pack(fill=tk.X, pady=10)
-        ttk.Label(self.sidebar, text="1. Select Image Directory", font=('Arial', 10, 'bold')).pack(anchor='w', pady=5)
-        ttk.Button(self.sidebar, text="📁 Browse", command=self.select_folder).pack(fill=tk.X, pady=5)
-        self.folder_label = ttk.Label(self.sidebar, text="No folder selected", wraplength=200)
-        self.folder_label.pack(fill=tk.X, pady=5)
-
-        # Progress bar
-        self.progress_bar = ttk.Progressbar(self.sidebar, mode='indeterminate', length=200)
-        self.progress_bar.pack(fill=tk.X, pady=5)
-        self.progress_bar.pack_forget()  # Hide initially
-
-        # Search options section
-        ttk.Separator(self.sidebar, orient='horizontal').pack(fill=tk.X, pady=10)
-        ttk.Label(self.sidebar, text="2. Configure Search", font=('Arial', 10, 'bold')).pack(anchor='w', pady=5)
-        ttk.Label(self.sidebar, text="Search Type:").pack(anchor='w', pady=2)
-        self.search_option = tk.StringVar(value="Text Search")
-        search_options = ["🖼️ Image Search", "📝 Text Search", "🔀 Hybrid"]
-        self.search_option_menu = ttk.Combobox(self.sidebar, textvariable=self.search_option, values=search_options, state="readonly")
-        self.search_option_menu.pack(fill=tk.X, pady=5)
-
-        # Image sample selection
-        self.sample_image_button = ttk.Button(self.sidebar, text="🖼️ Select Sample Image", command=self.select_sample_image)
-        self.sample_image_button.pack(fill=tk.X, pady=5)
-        self.sample_image_label = ttk.Label(self.sidebar, text="Drag and drop image here", wraplength=200)
-        self.sample_image_label.pack(fill=tk.X, pady=5)
-        self.sample_image_label.drop_target_register(DND_FILES)
-        self.sample_image_label.dnd_bind('<<Drop>>', self.drop_sample_image)
-        self.sample_image_display = ttk.Label(self.sidebar)
-        self.sample_image_display.pack(fill=tk.X, pady=5)
-
-        # Search query
-        ttk.Label(self.sidebar, text="Search Query:").pack(anchor='w', pady=2)
-        self.search_entry = ttk.Entry(self.sidebar)
-        self.search_entry.pack(fill=tk.X, pady=5)
-
-        # Similarity threshold slider
-        ttk.Label(self.sidebar, text="Similarity Threshold:").pack(anchor='w', pady=2)
-        self.similarity_threshold = tk.DoubleVar(value=0.5)  # Default value of 0.5
-        self.similarity_slider = ttk.Scale(self.sidebar, from_=0, to=1, orient=tk.HORIZONTAL, 
-                                           variable=self.similarity_threshold, command=self.update_threshold_label)
-        self.similarity_slider.pack(fill=tk.X, pady=5)
-        self.threshold_label = ttk.Label(self.sidebar, text=f"Threshold: {self.similarity_threshold.get():.2f}")
-        self.threshold_label.pack(fill=tk.X, pady=5)
-
-        # Search button
-        ttk.Separator(self.sidebar, orient='horizontal').pack(fill=tk.X, pady=10)
-        ttk.Button(self.sidebar, text="🔎 Search", command=self.search_images).pack(fill=tk.X, pady=10)
+        sidebar = ft.Column([
+            ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
+            create_step_card("Step 1: Select Images", [
+                ft.ElevatedButton("Select Folder", on_click=lambda _: self.folder_picker.get_directory_path(), width=280),
+                self.folder_path_text,
+                self.progress_bar,
+            ]),
+            create_step_card("Step 2: Choose Search Method", [
+                self.search_option,
+                ft.ElevatedButton("Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280),
+                self.sample_image_text,
+            ]),
+            create_step_card("Step 3: Enter Search Query", [
+                self.search_entry,
+            ]),
+            create_step_card("Step 4: Adjust Settings", [
+                self.similarity_slider,
+                ft.Text("Similarity Threshold", size=14),
+            ]),
+            create_step_card("Step 5: Perform Search", [
+                ft.ElevatedButton("Search", on_click=self.search_images, width=280),
+            ]),
+            create_step_card("Additional Options", [
+                ft.Row([
+                    ft.Switch(label="Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
+                    ft.ElevatedButton("Save Results", on_click=self.save_search_results),
+                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=280),
+            ]),
+        ], width=300, scroll=ft.ScrollMode.AUTO)
 
         # Image galleries
-        self.all_images_frame = ttk.LabelFrame(self.gallery_frame, text="All Images", padding="10")
-        self.all_images_frame.pack(side=tk.TOP, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        self.all_images_grid = ft.GridView(expand=1, max_extent=200, child_aspect_ratio=0.8)
+        self.search_results_grid = ft.GridView(expand=1, max_extent=220, child_aspect_ratio=0.75)
 
-        self.search_results_frame = ttk.LabelFrame(self.gallery_frame, text="Search Results", padding="10")
-        self.search_results_frame.pack(side=tk.BOTTOM, fill=tk.BOTH, expand=True, padx=10, pady=10)
+        main_content = ft.Column([
+            ft.Text("All Images", size=16, weight=ft.FontWeight.BOLD),
+            self.all_images_grid,
+            ft.Divider(),  # Add a divider here
+            ft.Text("Search Results", size=16, weight=ft.FontWeight.BOLD),
+            self.search_results_grid,
+        ], expand=True, spacing=20)  # Add some spacing between elements
 
-        # Scrollable canvas for image galleries
-        self.create_scrollable_canvas(self.all_images_frame)
-        self.create_scrollable_canvas(self.search_results_frame)
-
-        # Add dark mode toggle
-        self.dark_mode_check = ttk.Checkbutton(self.sidebar, text="Dark Mode", variable=self.theme_var, 
-                        command=self.toggle_theme, style="Switch.TCheckbutton")
-        self.dark_mode_check.pack(fill=tk.X, pady=5)
-
-        # Set initial state of the checkbutton
-        if self.theme_var.get() == "dark":
-            self.dark_mode_check.state(['selected'])
-        else:
-            self.dark_mode_check.state(['!selected'])
-
-        # Add "Save Search Results" button
-        ttk.Button(self.sidebar, text="💾 Save Results", command=self.save_search_results).pack(fill=tk.X, pady=5)
-
-    def toggle_theme(self):
-        current_theme = sv_ttk.get_theme()
-        new_theme = "dark" if current_theme == "light" else "light"
-        self.theme_var.set(new_theme)
-        self.apply_theme(new_theme)
-        
-        # Update the checkbutton state
-        if new_theme == "dark":
-            self.dark_mode_check.state(['selected'])
-        else:
-            self.dark_mode_check.state(['!selected'])
-        
-        # Force update of all widgets
-        self.master.update_idletasks()
-
-    def save_search_results(self):
-        if not hasattr(self, 'search_results'):
-            tk.messagebox.showinfo("Info", "No search results to save.")
-            return
-        
-        file_path = filedialog.asksaveasfilename(defaultextension=".json", filetypes=[("JSON files", "*.json")])
-        if file_path:
-            with open(file_path, 'w') as f:
-                json.dump(self.search_results, f)
-            tk.messagebox.showinfo("Success", f"Search results saved to {file_path}")
-
-    def select_sample_image(self):
-        file_path = filedialog.askopenfilename(filetypes=[("Image files", "*.png *.jpg *.jpeg *.gif *.bmp")])
-        self.set_sample_image(file_path)
-
-    def set_sample_image(self, file_path):
-        if file_path:
-            self.sample_image_path = file_path
-            self.sample_image_label.config(text=os.path.basename(file_path))
-            
-            img = Image.open(file_path)
-            img.thumbnail((150, 150))
-            photo = ImageTk.PhotoImage(img)
-            self.sample_image_display.config(image=photo)
-            self.sample_image_display.image = photo
-
-    def drop_sample_image(self, event):
-        file_path = event.data.strip("{}").split()[0]  # Get the first file if multiple are dropped
-        if file_path.lower().endswith(('.png', '.jpg', '.jpeg', '.gif', '.bmp')):
-            self.set_sample_image(file_path)
-        else:
-            tk.messagebox.showwarning("Invalid File", "Please drop an image file.")
-
-    def update_threshold_label(self, *args):
-        self.threshold_label.config(text=f"Threshold: {self.similarity_threshold.get():.2f}")
-
-    def select_folder(self):
-        folder_path = filedialog.askdirectory()
-        if folder_path:
-            self.folder_label.config(text=folder_path)
-            self.search_engine.image_dir = folder_path
-            self.index_and_display_images(folder_path)
-
-    def index_and_display_images(self, folder_path):
-        self.progress_bar.pack(fill=tk.X, pady=5)
-        self.progress_bar.start()
-
-        def index_thread():
-            self.search_engine.index_images(folder_path)
-            self.master.after(0, self.indexing_finished)
-
-        threading.Thread(target=index_thread, daemon=True).start()
-
-    def indexing_finished(self):
-        self.progress_bar.stop()
-        self.progress_bar.pack_forget()
-        self.display_all_images()
-
-    def search_images(self):
-        search_type = self.search_option.get()
-        query_text = self.search_entry.get()
-
-        if search_type in ["🖼️ Image Search", "🔀 Hybrid"] and not self.sample_image_path:
-            tk.messagebox.showwarning("Warning", "Please select a sample image for Image Search or Hybrid search.")
-            return
-        
-        if search_type in ["📝 Text Search", "🔀 Hybrid"] and not query_text:
-            tk.messagebox.showwarning("Warning", "Please enter a text query for Text Search or Hybrid search.")
-            return
-
-        if not self.search_engine.image_features:
-            tk.messagebox.showwarning("Warning", "Please load images first.")
-            return
-
-        self.progress_bar.pack(fill=tk.X, pady=5)
-        self.progress_bar.start()
-
-        def search_thread():
-            try:
-                if search_type == "🖼️ Image Search":
-                    results = self.search_engine.search_by_image(self.sample_image_path)
-                elif search_type == "📝 Text Search":
-                    results = self.search_engine.search_by_text(query_text)
-                else:  # Hybrid
-                    results = self.search_engine.search_hybrid(self.sample_image_path, query_text)
-                
-                threshold = self.similarity_threshold.get()
-                self.search_results = [(path, score) for path, score in results if score >= threshold]
-                
-                self.master.after(0, self.search_finished, self.search_results)
-            except Exception as e:
-                self.master.after(0, lambda e=e: tk.messagebox.showerror("Error", f"An error occurred during search: {str(e)}"))
-            finally:
-                self.master.after(0, lambda: self.progress_bar.pack_forget())
-
-        threading.Thread(target=search_thread, daemon=True).start()
-
-    def search_finished(self, results):
-        self.progress_bar.stop()
-        self.progress_bar.pack_forget()
-        self.display_search_results(results)
-
-    def display_all_images(self):
-        for widget in self.all_images_frame.winfo_children():
-            widget.destroy()
-
-        canvas, scrollable_frame = self.create_scrollable_canvas(self.all_images_frame)
-
-        indexed_images = self.search_engine.get_indexed_images()
-        columns = 5  # You can adjust this number to change the number of columns
-
-        for i, img_path in enumerate(indexed_images):
-            try:
-                img = Image.open(img_path)
-                img.thumbnail((150, 150))  # Increased size for better visibility
-                photo = ImageTk.PhotoImage(img)
-                frame = ttk.Frame(scrollable_frame)
-                label = ttk.Label(frame, image=photo)
-                label.image = photo  # Keep a reference
-                label.pack(fill=tk.BOTH, expand=True)
-                ttk.Label(frame, text=os.path.basename(img_path), wraplength=150).pack()
-                frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
-                
-                # Bind double-click event to open folder
-                label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
-            except Exception as e:
-                print(f"Error loading image {img_path}: {str(e)}")
-                continue
-
-        for i in range(columns):
-            scrollable_frame.columnconfigure(i, weight=1)
-
-        self.all_images_frame.update()
-
-    def display_search_results(self, results):
-        for widget in self.search_results_frame.winfo_children():
-            widget.destroy()
-
-        canvas, scrollable_frame = self.create_scrollable_canvas(self.search_results_frame)
-
-        columns = 5  # You can adjust this number to change the number of columns
-
-        for i, (img_path, score) in enumerate(results):
-            try:
-                img = Image.open(img_path)
-                img.thumbnail((150, 150))  # Increased size for better visibility
-                photo = ImageTk.PhotoImage(img)
-                frame = ttk.Frame(scrollable_frame)
-                label = ttk.Label(frame, image=photo)
-                label.image = photo  # Keep a reference
-                label.pack(fill=tk.BOTH, expand=True)
-                ttk.Label(frame, text=f"{os.path.basename(img_path)}\nScore: {score:.2f}", wraplength=150).pack()
-                frame.grid(row=i//columns, column=i%columns, padx=5, pady=5, sticky="nsew")
-                
-                # Bind double-click event to open folder
-                label.bind("<Double-1>", lambda e, path=img_path: self.open_image_folder(path))
-            except Exception as e:
-                print(f"Error loading image {img_path}: {str(e)}")
-                continue
-
-        for i in range(columns):
-            scrollable_frame.columnconfigure(i, weight=1)
-
-        self.search_results_frame.update()
-
-    def open_image_folder(self, image_path):
-        folder_path = os.path.dirname(image_path)
-        if os.name == 'nt':  # For Windows
-            os.startfile(folder_path)
-        elif os.name == 'posix':  # For macOS and Linux
-            subprocess.call(['open', folder_path])
-
-    def create_scrollable_canvas(self, parent):
-        canvas = tk.Canvas(parent)
-        scrollbar_y = ttk.Scrollbar(parent, orient="vertical", command=canvas.yview)
-        scrollbar_x = ttk.Scrollbar(parent, orient="horizontal", command=canvas.xview)
-        scrollable_frame = ttk.Frame(canvas)
-
-        scrollable_frame.bind(
-            "<Configure>",
-            lambda e: canvas.configure(scrollregion=canvas.bbox("all"))
+        # Main layout
+        self.page.add(
+            ft.Row([
+                ft.Container(sidebar, width=300, padding=10),
+                ft.VerticalDivider(width=1),
+                ft.Container(main_content, expand=True, padding=10),
+            ], expand=True)
         )
 
-        canvas.create_window((0, 0), window=scrollable_frame, anchor="nw")
-        canvas.configure(yscrollcommand=scrollbar_y.set, xscrollcommand=scrollbar_x.set)
+    def folder_picker_result(self, e: ft.FilePickerResultEvent):
+        if e.path:
+            self.folder_path_text.value = e.path
+            self.search_engine.image_dir = e.path
+            self.page.update()
+            self.index_and_display_images(e.path)
 
-        canvas.pack(side="left", fill="both", expand=True)
-        scrollbar_y.pack(side="right", fill="y")
-        scrollbar_x.pack(side="bottom", fill="x")
+    def file_picker_result(self, e: ft.FilePickerResultEvent):
+        if e.files:
+            self.sample_image_path = e.files[0].path
+            self.sample_image_text.value = os.path.basename(self.sample_image_path)
+            self.page.update()
 
-        # Bind mouse wheel event to the canvas
-        canvas.bind("<MouseWheel>", lambda event: canvas.yview_scroll(int(-1 * (event.delta / 120)), "units"))
-        canvas.bind("<Shift-MouseWheel>", lambda event: canvas.xview_scroll(int(-1 * (event.delta / 120)), "units"))
+    def index_and_display_images(self, folder_path):
+        print(f"Starting to index folder: {folder_path}")
+        self.progress_bar.visible = True
+        self.progress_bar.value = 0
+        self.page.update()
 
-        # Make sure the scrollable frame captures mouse events
-        def _on_mousewheel(event):
-            canvas.yview_scroll(int(-1 * (event.delta / 120)), "units")
-        def _on_shift_mousewheel(event):
-            canvas.xview_scroll(int(-1 * (event.delta / 120)), "units")
+        def progress_callback(progress):
+            print(f"Indexing progress: {progress}")
+            self.indexing_queue.put(("progress", progress))
+
+        def index_thread():
+            print("Starting indexing thread")
+            try:
+                self.search_engine.index_images(folder_path, progress_callback)
+                print("Indexing completed successfully")
+                self.indexing_queue.put(("finished", None))
+            except Exception as e:
+                print(f"Error during indexing: {str(e)}")
+                self.indexing_queue.put(("error", str(e)))
+
+        threading.Thread(target=index_thread, daemon=True).start()
+        self.check_indexing_status()
+
+    def check_indexing_status(self):
+        try:
+            message_type, data = self.indexing_queue.get_nowait()
+            if message_type == "progress":
+                self.progress_bar.value = data
+            elif message_type == "finished":
+                self.indexing_finished()
+                return
+            elif message_type == "error":
+                self.show_error(f"Error during indexing: {data}")
+                return
+            self.page.update()
+        except queue.Empty:
+            pass
         
-        scrollable_frame.bind("<MouseWheel>", _on_mousewheel)
-        scrollable_frame.bind("<Shift-MouseWheel>", _on_shift_mousewheel)
+        Timer(0.1, self.check_indexing_status).start()
 
-        return canvas, scrollable_frame
+    def indexing_finished(self):
+        print("Indexing finished, updating UI")
+        self.progress_bar.visible = False
+        self.display_all_images()
+        self.page.update()
+
+    def search_images(self, e):
+        search_type = self.search_option.value
+        query_text = self.search_entry.value
+
+        if not self.validate_search_inputs(search_type, query_text):
+            return
+
+        self.progress_bar.visible = True
+        self.page.update()
+
+        threading.Thread(target=self.search_thread, args=(search_type, query_text), daemon=True).start()
+        self.check_search_status()
+
+    def validate_search_inputs(self, search_type, query_text):
+        if search_type in ["Image Search", "Hybrid"] and not self.sample_image_path:
+            self.show_error("Please select a sample image for Image Search or Hybrid search.")
+            return False
+        
+        if search_type in ["Text Search", "Hybrid"] and not query_text:
+            self.show_error("Please enter a text query for Text Search or Hybrid search.")
+            return False
+
+        if not self.search_engine.image_features:
+            self.show_error("Please load images first.")
+            return False
+
+        return True
+
+    def show_error(self, message):
+        snack_bar = ft.SnackBar(content=ft.Text(message))
+        self.page.overlay.append(snack_bar)
+        snack_bar.open = True
+        self.page.update()
+
+    def search_thread(self, search_type, query_text):
+        try:
+            results = self.perform_search(search_type, query_text)
+            threshold = self.similarity_threshold  # Use the converted value
+            self.search_results = [(path, score) for path, score in results if score >= threshold]
+            self.search_queue.put(("finished", self.search_results))
+        except Exception as e:
+            self.search_queue.put(("error", str(e)))
+
+    def check_search_status(self):
+        try:
+            message_type, data = self.search_queue.get_nowait()
+            if message_type == "finished":
+                self.search_finished(data)
+            elif message_type == "error":
+                self.show_error(f"An error occurred during search: {data}")
+            self.progress_bar.visible = False
+            self.page.update()
+        except queue.Empty:
+            Timer(0.1, self.check_search_status).start()
+
+    def perform_search(self, search_type, query_text):
+        if search_type == "Image Search":
+            return self.search_engine.search_by_image(self.sample_image_path)
+        elif search_type == "Text Search":
+            return self.search_engine.search_by_text(query_text)
+        else:  # Hybrid
+            return self.search_engine.search_hybrid(self.sample_image_path, query_text)
+
+    def search_finished(self, results):
+        self.progress_bar.visible = False
+        self.display_search_results(results)
+        self.page.update()
+
+    def display_all_images(self):
+        self.all_images_grid.controls.clear()
+        indexed_images = self.search_engine.get_indexed_images()
+
+        for img_path in indexed_images:
+            file_name = os.path.basename(img_path)
+            image = ft.Image(
+                src=img_path,
+                width=150,
+                height=150,
+                fit=ft.ImageFit.COVER,
+                repeat=ft.ImageRepeat.NO_REPEAT,
+                border_radius=ft.border_radius.all(10),
+            )
+            
+            def create_on_double_tap(path):
+                return lambda _: self.open_file_location(path)
+            
+            gesture_detector = ft.GestureDetector(
+                content=image,
+                on_double_tap=create_on_double_tap(img_path)
+            )
+            
+            self.all_images_grid.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        gesture_detector,
+                        ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
+                    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                    padding=10,
+                    margin=ft.margin.all(5),
+                    height=200,  # Set a fixed height for each container
+                )
+            )
+        self.page.update()
+
+    def display_search_results(self, results):
+        self.search_results_grid.controls.clear()
+
+        for img_path, score in results:
+            file_name = os.path.basename(img_path)
+            image = ft.Image(
+                src=img_path,
+                width=150,
+                height=150,
+                fit=ft.ImageFit.COVER,
+                repeat=ft.ImageRepeat.NO_REPEAT,
+                border_radius=ft.border_radius.all(10),
+            )
+            
+            def create_on_double_tap(path):
+                return lambda _: self.open_file_location(path)
+            
+            gesture_detector = ft.GestureDetector(
+                content=image,
+                on_double_tap=create_on_double_tap(img_path)
+            )
+            
+            self.search_results_grid.controls.append(
+                ft.Container(
+                    content=ft.Column([
+                        gesture_detector,
+                        ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
+                        ft.Text(f"Score: {score:.2f}", size=12, text_align=ft.TextAlign.CENTER),
+                    ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
+                    padding=10,
+                    margin=ft.margin.all(5),
+                    height=220,  # Set a fixed height for each container, slightly taller to accommodate the score
+                )
+            )
+        self.page.update()
+
+    def toggle_theme(self, e):
+        self.page.theme_mode = ft.ThemeMode.DARK if e.control.value else ft.ThemeMode.LIGHT
+        self.page.update()
+
+    def save_search_results(self, e):
+        # Implement save functionality
+        pass
 
     def load_cache(self):
         cache_file = "image_features_cache.json"
@@ -385,12 +343,23 @@ class ImageSearchApp:
         with open(cache_file, 'w') as f:
             json.dump(cache_data, f)
 
-def main():
-    root = TkinterDnD.Tk()
-    app = ImageSearchApp(root)
-    root.geometry("1200x800")
-    root.mainloop()
-    app.save_cache()  # Save cache when closing the app
+    def update_similarity_value(self, e):
+        # Convert the 0-100 value to 0-1 for internal use
+        self.similarity_threshold = e.control.value / 100
+        self.page.update()
 
-if __name__ == "__main__":
-    main()
+    def open_file_location(self, image_path):
+        folder_path = os.path.dirname(image_path)
+        print(f"Opening folder: {folder_path}")  # Add this line for debugging
+        if platform.system() == "Windows":
+            os.startfile(folder_path)
+        elif platform.system() == "Darwin":  # macOS
+            subprocess.Popen(["open", folder_path])
+        else:  # Linux and other Unix-like
+            subprocess.Popen(["xdg-open", folder_path])
+
+def main(page: ft.Page):
+    app = ImageSearchApp(page)
+    page.on_close = app.save_cache
+
+ft.app(target=main)

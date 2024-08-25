@@ -9,6 +9,14 @@ if %errorlevel% neq 0 (
     exit /b 1
 )
 
+REM Check if Git is installed
+git --version >nul 2>&1
+if %errorlevel% neq 0 (
+    echo Git is not installed. Please install Git and try again.
+    pause
+    exit /b 1
+)
+
 REM Create a virtual environment
 echo Creating virtual environment...
 python -m venv venv
@@ -24,10 +32,6 @@ python -m pip install --upgrade pip
 REM Install required packages
 echo Installing required packages...
 pip install -r requirements.txt
-
-REM Add these lines after installing other packages
-echo Installing CLIP...
-pip install git+https://github.com/openai/CLIP.git
 
 echo Setup complete! You can now run the Image Search App.
 pause
