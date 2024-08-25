@@ -4,7 +4,6 @@ import torch
 from PIL import Image
 import json
 import pickle
-from torchvision import transforms
 
 class ImageSearchEngine:
     def __init__(self):
@@ -27,7 +26,8 @@ class ImageSearchEngine:
         print(f"Using device: {self.device}")
         
         try:
-            self.model, self.preprocess = clip.load("ViT-B/32", device=self.device)
+            # Change 1: Use a larger CLIP model
+            self.model, self.preprocess = clip.load("ViT-L/14", device=self.device)
             print("CLIP model loaded successfully")
             print(f"CLIP model device: {next(self.model.parameters()).device}")
         except Exception as e:
@@ -35,11 +35,6 @@ class ImageSearchEngine:
             raise
         
         self.image_features = {}
-        self.preprocess = transforms.Compose([
-            transforms.Resize((224, 224)),
-            transforms.ToTensor(),
-            transforms.Normalize(mean=[0.485, 0.456, 0.406], std=[0.229, 0.224, 0.225]),
-        ])
 
     def index_images(self, folder_path, progress_callback=None):
         print(f"Scanning folder: {folder_path}")
@@ -67,6 +62,7 @@ class ImageSearchEngine:
         for path in image_paths:
             try:
                 image = Image.open(path).convert("RGB")
+                # Change 2: Use CLIP's preprocessing
                 images.append(self.preprocess(image))
                 valid_paths.append(path)
             except Exception as e:
@@ -77,7 +73,7 @@ class ImageSearchEngine:
             return
 
         image_input = torch.stack(images).to(self.device)
-        print(f"Image input device: {image_input.device}")  # Add this line
+        print(f"Image input device: {image_input.device}")
         with torch.no_grad():
             image_features = self.model.encode_image(image_input)
         
@@ -115,7 +111,7 @@ class ImageSearchEngine:
             # Normalize the query features
             query_features = query_features / query_features.norm(dim=-1, keepdim=True)
             
-            return self._calculate_similarities(query_features.cpu())  # Move to CPU for comparison
+            return self._calculate_similarities(query_features.cpu())
         except Exception as e:
             print(f"Error in search_by_image: {str(e)}")
             raise
@@ -128,7 +124,10 @@ class ImageSearchEngine:
             with torch.no_grad():
                 text_features = self.model.encode_text(text_input)
             
-            return self._calculate_similarities(text_features.cpu())  # Move to CPU for comparison
+            # Normalize the text features
+            text_features = text_features / text_features.norm(dim=-1, keepdim=True)
+            
+            return self._calculate_similarities(text_features.cpu())
         except Exception as e:
             print(f"Error in search_by_text: {str(e)}")
             raise
@@ -156,7 +155,11 @@ class ImageSearchEngine:
             similarity = torch.cosine_similarity(query_features, features.unsqueeze(0))
             similarities[path] = similarity.item()
         
-        return sorted(similarities.items(), key=lambda x: x[1], reverse=True)
+        # Change 3: Add a minimum similarity threshold
+        min_similarity = 0.7  # Adjust this value as needed
+        filtered_similarities = {k: v for k, v in similarities.items() if v >= min_similarity}
+        
+        return sorted(filtered_similarities.items(), key=lambda x: x[1], reverse=True)
 
     def get_indexed_images(self):
         return list(self.image_features.keys())

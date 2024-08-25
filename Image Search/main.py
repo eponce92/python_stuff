@@ -17,7 +17,7 @@ class ImageSearchApp:
         self.sample_image_path = None
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
-        self.similarity_threshold = 0.5  # Default value
+        self.similarity_threshold = 0.7  # Updated default value
 
         # Set theme
         self.theme = darkdetect.theme().lower()
@@ -54,12 +54,24 @@ class ImageSearchApp:
             value="Text Search",
             width=280,
         )
-        self.search_entry = ft.TextField(label="Text Search", width=280)
+        self.search_entry = ft.TextField(
+            label="Text Search",
+            width=280,
+            border_radius=ft.border_radius.all(8),
+            filled=True,
+            dense=True,
+            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+            suffix_icon=None,
+            border_color=ft.colors.TRANSPARENT,
+            focused_border_color=ft.colors.PRIMARY,
+            focused_color=None,
+            color=ft.colors.ON_SURFACE,
+        )
         self.similarity_slider = ft.Slider(
-            min=0,
+            min=70,
             max=100,
-            value=50,  # Default to 50%
-            divisions=100,
+            value=70,
+            divisions=30,
             label="{value}%",
             width=280,
             on_change=self.update_similarity_value
@@ -100,10 +112,7 @@ class ImageSearchApp:
                 ft.ElevatedButton("🔍 Search", on_click=self.search_images, width=280),
             ]),
             create_step_card("Additional Options", [
-                ft.Row([
-                    ft.Switch(label="🌙 Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
-                    ft.ElevatedButton("💾 Save Results", on_click=self.save_search_results),
-                ], alignment=ft.MainAxisAlignment.SPACE_BETWEEN, width=280),
+                ft.Switch(label="🌙 Dark Mode", value=self.theme == "dark", on_change=self.toggle_theme),
             ]),
         ], width=300, scroll=ft.ScrollMode.AUTO)
 
@@ -114,10 +123,10 @@ class ImageSearchApp:
         main_content = ft.Column([
             ft.Text("All Images", size=16, weight=ft.FontWeight.BOLD),
             self.all_images_grid,
-            ft.Divider(),  # Add a divider here
+            ft.Divider(),
             ft.Text("Search Results", size=16, weight=ft.FontWeight.BOLD),
             self.search_results_grid,
-        ], expand=True, spacing=20)  # Add some spacing between elements
+        ], expand=True, spacing=20)
 
         # Main layout
         self.page.add(
@@ -224,7 +233,7 @@ class ImageSearchApp:
     def search_thread(self, search_type, query_text):
         try:
             results = self.perform_search(search_type, query_text)
-            threshold = self.similarity_threshold  # Use the converted value
+            threshold = self.similarity_threshold
             self.search_results = [(path, score) for path, score in results if score >= threshold]
             self.search_queue.put(("finished", self.search_results))
         except Exception as e:
@@ -331,10 +340,6 @@ class ImageSearchApp:
         self.page.theme_mode = ft.ThemeMode.DARK if e.control.value else ft.ThemeMode.LIGHT
         self.page.update()
 
-    def save_search_results(self, e):
-        # Implement save functionality
-        pass
-
     def load_cache(self):
         cache_file = "image_features_cache.json"
         if os.path.exists(cache_file):
@@ -343,26 +348,25 @@ class ImageSearchApp:
             self.search_engine.load_cache(cache_data)
             self.display_all_images()  # Display cached images
 
-    def save_cache(self):
-        cache_file = "image_features_cache.json"
-        cache_data = self.search_engine.get_cache()
-        with open(cache_file, 'w') as f:
-            json.dump(cache_data, f)
-
     def update_similarity_value(self, e):
-        # Convert the 0-100 value to 0-1 for internal use
         self.similarity_threshold = e.control.value / 100
         self.page.update()
 
     def open_file_location(self, image_path):
         folder_path = os.path.dirname(image_path)
-        print(f"Opening folder: {folder_path}")  # Add this line for debugging
+        print(f"Opening folder: {folder_path}")
         if platform.system() == "Windows":
             os.startfile(folder_path)
         elif platform.system() == "Darwin":  # macOS
             subprocess.Popen(["open", folder_path])
         else:  # Linux and other Unix-like
             subprocess.Popen(["xdg-open", folder_path])
+
+    def save_cache(self):
+        cache_file = "image_features_cache.json"
+        cache_data = self.search_engine.get_cache()
+        with open(cache_file, 'w') as f:
+            json.dump(cache_data, f)
 
 def main(page: ft.Page):
     app = ImageSearchApp(page)
