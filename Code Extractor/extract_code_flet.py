@@ -36,6 +36,7 @@ import tkinter as tk
 from tkinter import filedialog, messagebox, ttk
 import pyperclip
 import pathspec
+import sys
 
 def load_gitignore_patterns(root_folder):
     """
@@ -148,9 +149,9 @@ class ProjectScannerGUI:
                 "files": "README.md,LICENSE,.gitignore, code_extraction_UI.py"
             },
             "Python": {
-                "folders": ".git,__pycache__,venv,.eggs,build,dist",
-                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl",
-                "files": "README.md,LICENSE,.gitignore,setup.py,requirements.txt, code_extraction_UI.py"
+                "folders": ".git,__pycache__,venv,.eggs,build,dist, reports, assets, internal_libs",
+                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl, .json, .md, .pdf, .pptx, .docx, .xlsx, .ppt, .doc, .xls",
+                "files": "README.md,LICENSE,.gitignore,setup.py,requirements.txt, code_extraction_UI.py, BatchCaller.py"
             },
             "Java": {
                 "folders": ".git,target,build,.gradle",
@@ -179,7 +180,12 @@ class ProjectScannerGUI:
         tk.Label(left_frame, text="Project Folder:").pack(anchor=tk.W, pady=(10, 0))
         self.folder_path = tk.StringVar()
         tk.Entry(left_frame, textvariable=self.folder_path, width=30).pack(anchor=tk.W)
-        tk.Button(left_frame, text="Browse", command=self.browse_folder).pack(anchor=tk.W)
+        
+        folder_buttons_frame = tk.Frame(left_frame)
+        folder_buttons_frame.pack(anchor=tk.W)
+        
+        tk.Button(folder_buttons_frame, text="Browse", command=self.browse_folder).pack(side=tk.LEFT)
+        tk.Button(folder_buttons_frame, text="Use Current Folder ↑", command=self.use_current_folder).pack(side=tk.LEFT, padx=(5, 0))
 
         # Exclusion fields
         tk.Label(left_frame, text="Exclude Folders (comma-separated):").pack(anchor=tk.W, pady=(10, 0))
@@ -299,6 +305,11 @@ class ProjectScannerGUI:
         content = self.output_text.get(1.0, tk.END)
         pyperclip.copy(content)
         messagebox.showinfo("Success", "Content copied to clipboard!")
+
+    def use_current_folder(self):
+        """Set the folder path to the directory where the script is located."""
+        current_folder = os.path.dirname(os.path.abspath(sys.argv[0]))
+        self.folder_path.set(current_folder)
 
 if __name__ == "__main__":
     root = tk.Tk()
