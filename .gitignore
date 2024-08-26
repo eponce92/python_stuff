@@ -70,3 +70,4 @@ coverage.xml
 
 # Jupyter Notebook
 .ipynb_checkpoints
+image_features_cache.json
