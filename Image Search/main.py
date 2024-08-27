@@ -25,7 +25,13 @@ class ImageSearchApp:
         self.indexing_queue = queue.Queue()
         self.search_queue = queue.Queue()
         self.similarity_threshold = 0.15
-        self.sample_image_preview = ft.Image(width=100, height=100, fit=ft.ImageFit.COVER, border_radius=ft.border_radius.all(10), visible=False)
+        self.sample_image_preview = ft.Container(
+            width=100,
+            height=100,
+            bgcolor=ft.colors.GREY_300,
+            border_radius=ft.border_radius.all(10),
+            content=ft.Text("No image selected", size=10, text_align=ft.TextAlign.CENTER),
+        )
 
         # Set theme
         self.theme = darkdetect.theme().lower()
@@ -149,6 +155,13 @@ class ImageSearchApp:
             width=280,
         )
 
+        # Add this line to create a drag target for the sample image
+        self.sample_image_drag_target = ft.DragTarget(
+            group="image",
+            content=self.sample_image_preview,
+            on_accept=self.on_sample_image_drop
+        )
+
         sidebar = ft.Column([
             ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
             create_step_card("Step 1: Select Images", [
@@ -164,7 +177,7 @@ class ImageSearchApp:
             create_step_card("Step 3: Select Sample Image", [
                 ft.ElevatedButton("📷 Select Sample Image", on_click=lambda _: self.file_picker.pick_files(allowed_extensions=["png", "jpg", "jpeg", "gif"]), width=280, **button_style),
                 ft.Container(
-                    content=self.sample_image_preview,
+                    content=self.sample_image_drag_target,
                     alignment=ft.alignment.center
                 ),
             ]),
@@ -226,8 +239,15 @@ class ImageSearchApp:
             img.save(buf, format='PNG')
             buf.seek(0)
             
-            self.sample_image_preview.src_base64 = base64.b64encode(buf.getvalue()).decode()
-            self.sample_image_preview.visible = True
+            self.sample_image_preview = ft.Image(
+                src_base64=base64.b64encode(buf.getvalue()).decode(),
+                width=100,
+                height=100,
+                fit=ft.ImageFit.COVER,
+                border_radius=ft.border_radius.all(10),
+            )
+            
+            self.sample_image_drag_target.content = self.sample_image_preview
             
             self.page.update()
 
@@ -361,10 +381,6 @@ class ImageSearchApp:
         for img_path in indexed_images:
             file_name = os.path.basename(img_path)
             
-            # Comment out or remove the image description part
-            # descriptions = self.search_engine.get_image_description(img_path)
-            # description_text = " | ".join(descriptions)
-            
             image = ft.Image(
                 src=img_path,
                 width=150,
@@ -372,9 +388,6 @@ class ImageSearchApp:
                 fit=ft.ImageFit.COVER,
                 repeat=ft.ImageRepeat.NO_REPEAT,
                 border_radius=ft.border_radius.all(10),
-                # Remove or comment out these lines
-                # semantics_label=description_text,
-                # tooltip=description_text,
             )
             
             def create_on_double_tap(path):
@@ -385,10 +398,17 @@ class ImageSearchApp:
                 on_double_tap=create_on_double_tap(img_path),
             )
             
+            # Wrap the gesture detector in a Draggable
+            draggable = ft.Draggable(
+                group="image",
+                content=gesture_detector,
+                data=img_path,  # Store the image path as data
+            )
+            
             self.all_images_grid.controls.append(
                 ft.Container(
                     content=ft.Column([
-                        gesture_detector,
+                        draggable,
                         ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER),
                     padding=10,
@@ -420,11 +440,17 @@ class ImageSearchApp:
                 on_double_tap=create_on_double_tap(img_path)
             )
             
-                        
+            # Wrap the gesture detector in a Draggable
+            draggable = ft.Draggable(
+                group="image",
+                content=gesture_detector,
+                data=img_path,  # Store the image path as data
+            )
+            
             self.search_results_grid.controls.append(
                 ft.Container(
                     content=ft.Column([
-                        gesture_detector,
+                        draggable,
                         ft.Text(file_name, size=12, text_align=ft.TextAlign.CENTER, no_wrap=True, max_lines=1),
                         ft.Text(f"Score: {score:.2f}", size=12, text_align=ft.TextAlign.CENTER),
                     ], alignment=ft.MainAxisAlignment.CENTER, horizontal_alignment=ft.CrossAxisAlignment.CENTER, spacing=5),
@@ -531,6 +557,71 @@ class ImageSearchApp:
             # Ensure at least one switch is always on
             if not (self.text_search_switch.value or self.image_search_switch.value or self.hybrid_search_switch.value):
                 e.control.value = True
+        self.page.update()
+
+    def on_sample_image_drop(self, e: ft.DragTargetAcceptEvent):
+        print(f"Drag event received: {e}")  # Debug print
+        
+        # Get the dragged image path from the event data
+        try:
+            drag_data = json.loads(e.data)
+            print(f"Parsed drag data: {drag_data}")  # Debug print
+            
+            # Get the source control (the Draggable) using the src_id
+            source_control = self.page.get_control(drag_data['src_id'])
+            if source_control and hasattr(source_control, 'data'):
+                self.sample_image_path = source_control.data
+            else:
+                raise ValueError("Source control not found or doesn't have 'data' attribute")
+        except json.JSONDecodeError:
+            self.sample_image_path = e.data  # Fallback to using the data directly if it's not JSON
+        except Exception as ex:
+            print(f"Error parsing drag data: {ex}")
+            self.sample_image_path = None
+
+        print(f"Sample image path: {self.sample_image_path}")  # Debug print
+        
+        if self.sample_image_path and os.path.exists(self.sample_image_path):
+            try:
+                # Update the sample image preview
+                img = Image.open(self.sample_image_path)
+                img.thumbnail((100, 100))  # Resize the image while maintaining aspect ratio
+                buf = io.BytesIO()
+                img.save(buf, format='PNG')
+                buf.seek(0)
+                
+                # Replace the placeholder with an actual image
+                self.sample_image_preview = ft.Image(
+                    src_base64=base64.b64encode(buf.getvalue()).decode(),
+                    width=100,
+                    height=100,
+                    fit=ft.ImageFit.COVER,
+                    border_radius=ft.border_radius.all(10),
+                )
+                
+                # Update the drag target content
+                self.sample_image_drag_target.content = self.sample_image_preview
+            except Exception as ex:
+                print(f"Error loading image: {ex}")  # Debug print
+                self.sample_image_preview = ft.Container(
+                    width=100,
+                    height=100,
+                    bgcolor=ft.colors.RED_100,
+                    border_radius=ft.border_radius.all(10),
+                    content=ft.Text(f"Error: {str(ex)}", size=10, color=ft.colors.RED, text_align=ft.TextAlign.CENTER),
+                )
+                self.sample_image_drag_target.content = self.sample_image_preview
+        else:
+            print(f"Invalid image path: {self.sample_image_path}")  # Debug print
+            self.sample_image_preview = ft.Container(
+                width=100,
+                height=100,
+                bgcolor=ft.colors.RED_100,
+                border_radius=ft.border_radius.all(10),
+                content=ft.Text("Invalid image path", size=10, color=ft.colors.RED, text_align=ft.TextAlign.CENTER),
+            )
+            self.sample_image_drag_target.content = self.sample_image_preview
+        
         self.page.update()
 
 async def main(page: ft.Page):
