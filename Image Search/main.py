@@ -130,10 +130,10 @@ class ImageSearchApp:
                 focused_color=None,
                 color=ft.colors.ON_SURFACE,
                 on_submit=self.search_images,
-                on_change=self.on_text_field_change,  # Add this line
-                multiline=True,  # Add this line
-                min_lines=2,  # Add this line
-                max_lines=2,  # Add this line
+                on_change=self.on_text_field_change,
+                multiline=True,
+                min_lines=2,
+                max_lines=2,
             ),
             on_accept=self.on_image_drop_to_search,
         )
@@ -325,7 +325,7 @@ class ImageSearchApp:
         self.display_all_images()
         self.page.update()
 
-    def search_images(self, e):
+    def search_images(self, e=None):
         if self.text_search_switch.value:
             search_type = "Text"
         elif self.image_search_switch.value:
@@ -333,7 +333,7 @@ class ImageSearchApp:
         else:
             search_type = "Hybrid"
 
-        query_text = self.search_entry.content.value
+        query_text = self.search_entry.content.value.strip()
 
         if not self.validate_search_inputs(search_type, query_text):
             return
@@ -701,6 +701,11 @@ class ImageSearchApp:
                 self.image_search_switch.value = True
                 self.text_search_switch.value = False
                 self.hybrid_search_switch.value = False
+                
+                self.page.update()
+                
+                # Start the search automatically
+                self.search_images(None)
             except Exception as ex:
                 print(f"Error loading image: {ex}")  # Debug print
                 self.sample_image_preview = ft.Container(
@@ -711,6 +716,7 @@ class ImageSearchApp:
                     content=ft.Text(f"Error: {str(ex)}", size=10, color=ft.colors.RED, text_align=ft.TextAlign.CENTER),
                 )
                 self.sample_image_drag_target.content = self.sample_image_preview
+                self.page.update()
         else:
             print(f"Invalid image path: {self.sample_image_path}")  # Debug print
             self.sample_image_preview = ft.Container(
@@ -721,8 +727,7 @@ class ImageSearchApp:
                 content=ft.Text("Invalid image path", size=10, color=ft.colors.RED, text_align=ft.TextAlign.CENTER),
             )
             self.sample_image_drag_target.content = self.sample_image_preview
-        
-        self.page.update()
+            self.page.update()
 
     def on_image_drop_to_search(self, e: ft.DragTargetAcceptEvent):
         try:
@@ -743,6 +748,9 @@ class ImageSearchApp:
                         self.image_search_switch.value = False
                         self.hybrid_search_switch.value = False
                         self.page.update()
+                        
+                        # Start the search automatically
+                        self.search_images(None)
                     
                     threading.Thread(target=process_image, daemon=True).start()
         except Exception as ex:
