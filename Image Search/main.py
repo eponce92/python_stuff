@@ -555,8 +555,7 @@ class ImageSearchApp:
             self.image_search_switch.value = False
         else:
             # Ensure at least one switch is always on
-            if not (self.text_search_switch.value or self.image_search_switch.value or self.hybrid_search_switch.value):
-                e.control.value = True
+            e.control.value = True
         self.page.update()
 
     def on_sample_image_drop(self, e: ft.DragTargetAcceptEvent):
@@ -601,6 +600,11 @@ class ImageSearchApp:
                 
                 # Update the drag target content
                 self.sample_image_drag_target.content = self.sample_image_preview
+                
+                # Set the image search toggle to true
+                self.image_search_switch.value = True
+                self.text_search_switch.value = False
+                self.hybrid_search_switch.value = False
             except Exception as ex:
                 print(f"Error loading image: {ex}")  # Debug print
                 self.sample_image_preview = ft.Container(
