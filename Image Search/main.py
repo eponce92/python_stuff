@@ -371,16 +371,65 @@ class ImageSearchApp:
     def search_thread(self, search_type, query_text):
         try:
             results = self.perform_search(search_type, query_text)
-            self.search_results = results  # Remove local filtering
-            self.search_queue.put(("finished", self.search_results))
+            if not results:
+                # If no results, adjust threshold and search again
+                self.adjust_threshold_and_search(search_type, query_text)
+            else:
+                self.search_results = results
+                self.search_queue.put(("finished", self.search_results))
         except Exception as e:
             self.search_queue.put(("error", str(e)))
+
+    def adjust_threshold_and_search(self, search_type, query_text):
+        # Perform search with no threshold
+        all_results = self.perform_search(search_type, query_text, threshold=0)
+        
+        if len(all_results) >= 5:
+            # Get the fifth highest score
+            fifth_highest_score = sorted([score for _, score in all_results], reverse=True)[4]
+            
+            # Set the new threshold slightly lower than the fifth highest score
+            new_threshold = max(0, fifth_highest_score - 0.01)
+            
+            # Update the similarity threshold
+            self.similarity_threshold = new_threshold
+            self.search_engine.user_similarity_threshold = new_threshold
+            
+            # Filter results with the new threshold
+            filtered_results = [result for result in all_results if result[1] >= new_threshold]
+            
+            self.search_results = filtered_results
+            self.search_queue.put(("adjusted", (filtered_results, new_threshold)))
+        else:
+            # If less than 5 results, show all results
+            self.search_results = all_results
+            self.search_queue.put(("adjusted", (all_results, 0)))
+
+    def perform_search(self, search_type, query_text, threshold=None):
+        if threshold is not None:
+            original_threshold = self.search_engine.user_similarity_threshold
+            self.search_engine.user_similarity_threshold = threshold
+
+        try:
+            if search_type == "Image":
+                results = self.search_engine.search_by_image(self.sample_image_path)
+            elif search_type == "Text":
+                results = self.search_engine.search_by_text(query_text)
+            else:  # Hybrid
+                results = self.search_engine.search_hybrid(self.sample_image_path, query_text)
+        finally:
+            if threshold is not None:
+                self.search_engine.user_similarity_threshold = original_threshold
+
+        return results
 
     def check_search_status(self):
         try:
             message_type, data = self.search_queue.get_nowait()
             if message_type == "finished":
                 self.search_finished(data)
+            elif message_type == "adjusted":
+                self.search_finished_with_adjustment(*data)
             elif message_type == "error":
                 self.show_error(f"An error occurred during search: {data}")
             self.progress_bar.visible = False
@@ -388,17 +437,37 @@ class ImageSearchApp:
         except queue.Empty:
             Timer(0.1, self.check_search_status).start()
 
-    def perform_search(self, search_type, query_text):
-        if search_type == "Image":
-            return self.search_engine.search_by_image(self.sample_image_path)
-        elif search_type == "Text":
-            return self.search_engine.search_by_text(query_text)
-        else:  # Hybrid
-            return self.search_engine.search_hybrid(self.sample_image_path, query_text)
-
     def search_finished(self, results):
         self.progress_bar.visible = False
         self.display_search_results(results)
+        self.page.update()
+
+    def search_finished_with_adjustment(self, results, new_threshold):
+        self.progress_bar.visible = False
+        self.display_search_results(results)
+        self.update_similarity_slider(new_threshold)
+        self.show_threshold_adjustment_dialog(new_threshold)
+        self.page.update()
+
+    def update_similarity_slider(self, new_threshold):
+        self.similarity_slider.value = new_threshold * 100
+        self.similarity_threshold_text.value = f"Similarity Threshold: {new_threshold:.2f}"
+
+    def show_threshold_adjustment_dialog(self, new_threshold):
+        dialog = ft.AlertDialog(
+            title=ft.Text("Threshold Adjusted"),
+            content=ft.Text(f"The similarity threshold has been automatically adjusted to {new_threshold:.2f} to show results."),
+            actions=[
+                ft.TextButton("OK", on_click=self.close_dialog),
+            ],
+            actions_alignment=ft.MainAxisAlignment.END,
+        )
+        self.page.dialog = dialog
+        dialog.open = True
+        self.page.update()
+
+    def close_dialog(self, e):
+        self.page.dialog.open = False
         self.page.update()
 
     def display_all_images(self):
