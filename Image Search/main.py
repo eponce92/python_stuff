@@ -15,6 +15,18 @@ from PIL import Image
 import io
 import base64
 import asyncio
+import torch
+from clip_interrogator import Config, Interrogator
+
+# Add this function before the ImageSearchApp class definition
+def setup_clip_interrogator():
+    config = Config()
+    config.device = 'cuda' if torch.cuda.is_available() else 'cpu'
+    config.blip_offload = False if torch.cuda.is_available() else True
+    config.chunk_size = 2048
+    config.flavor_intermediate_count = 512
+    config.blip_num_beams = 64
+    return Interrogator(config)
 
 class ImageSearchApp:
     def __init__(self, page: ft.Page):
@@ -64,6 +76,9 @@ class ImageSearchApp:
         # Instead of creating a task, we'll call initialize directly
         self.initialize_task = self.initialize()
 
+        # Initialize CLIP Interrogator
+        self.clip_interrogator = None  # We'll initialize this later
+
     async def initialize(self):
         # Initialize the search engine
         self.search_engine = ImageSearchEngine()
@@ -100,19 +115,27 @@ class ImageSearchApp:
             value=False,
             on_change=self.update_search_type
         )
-        self.search_entry = ft.TextField(
-            label="Text Search",
-            width=280,
-            border_radius=ft.border_radius.all(8),
-            filled=True,
-            dense=True,
-            content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
-            suffix_icon=None,
-            border_color=ft.colors.TRANSPARENT,
-            focused_border_color=ft.colors.PRIMARY,
-            focused_color=None,
-            color=ft.colors.ON_SURFACE,
-            on_submit=self.search_images, 
+        self.search_entry = ft.DragTarget(
+            group="image",
+            content=ft.TextField(
+                label="Text Search",
+                width=280,
+                border_radius=ft.border_radius.all(8),
+                filled=True,
+                dense=True,
+                content_padding=ft.padding.symmetric(horizontal=10, vertical=8),
+                suffix_icon=None,
+                border_color=ft.colors.TRANSPARENT,
+                focused_border_color=ft.colors.PRIMARY,
+                focused_color=None,
+                color=ft.colors.ON_SURFACE,
+                on_submit=self.search_images,
+                on_change=self.on_text_field_change,  # Add this line
+                multiline=True,  # Add this line
+                min_lines=2,  # Add this line
+                max_lines=2,  # Add this line
+            ),
+            on_accept=self.on_image_drop_to_search,
         )
         self.similarity_slider = ft.Slider(
             min=0,
@@ -162,6 +185,9 @@ class ImageSearchApp:
             on_accept=self.on_sample_image_drop
         )
 
+        # Add this line after initializing self.clip_interrogator
+        self.clip_interrogator_progress = ft.ProgressBar(width=280, visible=False)
+
         sidebar = ft.Column([
             ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
             create_step_card("Step 1: Select Images", [
@@ -183,6 +209,7 @@ class ImageSearchApp:
             ]),
             create_step_card("Step 4: Enter Search Query", [
                 self.search_entry,
+                self.clip_interrogator_progress,  # Add this line
             ]),
             create_step_card("Step 5: Adjust Settings", [
                 self.similarity_slider,
@@ -306,7 +333,7 @@ class ImageSearchApp:
         else:
             search_type = "Hybrid"
 
-        query_text = self.search_entry.value
+        query_text = self.search_entry.content.value
 
         if not self.validate_search_inputs(search_type, query_text):
             return
@@ -628,6 +655,38 @@ class ImageSearchApp:
         
         self.page.update()
 
+    def on_image_drop_to_search(self, e: ft.DragTargetAcceptEvent):
+        try:
+            drag_data = json.loads(e.data)
+            source_control = self.page.get_control(drag_data['src_id'])
+            if source_control and hasattr(source_control, 'data'):
+                image_path = source_control.data
+                if image_path and os.path.exists(image_path):
+                    self.clip_interrogator_progress.visible = True
+                    self.page.update()
+                    
+                    def process_image():
+                        image = Image.open(image_path).convert('RGB')
+                        description = self.clip_interrogator.interrogate(image)
+                        self.search_entry.content.value = description
+                        self.clip_interrogator_progress.visible = False
+                        self.text_search_switch.value = True
+                        self.image_search_switch.value = False
+                        self.hybrid_search_switch.value = False
+                        self.page.update()
+                    
+                    threading.Thread(target=process_image, daemon=True).start()
+        except Exception as ex:
+            print(f"Error processing dropped image: {ex}")
+            self.clip_interrogator_progress.visible = False
+            self.page.update()
+
+    def on_text_field_change(self, e):
+        self.text_search_switch.value = True
+        self.image_search_switch.value = False
+        self.hybrid_search_switch.value = False
+        self.page.update()
+
 async def main(page: ft.Page):
     page.window.icon = "assets/icon.ico"
     page.window.width = 1200
@@ -637,6 +696,8 @@ async def main(page: ft.Page):
     app = ImageSearchApp(page)
     # Wait for the initialization to complete
     await app.initialize_task
+    # Initialize CLIP Interrogator
+    app.clip_interrogator = setup_clip_interrogator()
     page.on_close = app.save_cache
 
 # Use ft.app with an asynchronous target

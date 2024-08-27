@@ -71,3 +71,9 @@ coverage.xml
 # Jupyter Notebook
 .ipynb_checkpoints
 image_features_cache.json
+cache/ViT-L-14_openai_artists.safetensors
+cache/ViT-L-14_openai_flavors.safetensors
+cache/ViT-L-14_openai_mediums.safetensors
+cache/ViT-L-14_openai_movements.safetensors
+cache/ViT-L-14_openai_negative.safetensors
+cache/ViT-L-14_openai_trendings.safetensors
