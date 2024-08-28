@@ -17,6 +17,7 @@ import base64
 import asyncio
 import torch
 from clip_interrogator import Config, Interrogator
+from transformers import AutoModelForCausalLM, AutoTokenizer
 
 # Add this function before the ImageSearchApp class definition
 def setup_clip_interrogator():
@@ -27,6 +28,16 @@ def setup_clip_interrogator():
     config.flavor_intermediate_count = 512
     config.blip_num_beams = 64
     return Interrogator(config)
+
+# Add this function after the setup_clip_interrogator function
+def setup_moondream():
+    model_id = "vikhyatk/moondream2"
+    revision = "2024-08-26"
+    model = AutoModelForCausalLM.from_pretrained(
+        model_id, trust_remote_code=True, revision=revision
+    )
+    tokenizer = AutoTokenizer.from_pretrained(model_id, revision=revision)
+    return model, tokenizer
 
 class ImageSearchApp:
     def __init__(self, page: ft.Page):
@@ -78,6 +89,9 @@ class ImageSearchApp:
 
         # Initialize CLIP Interrogator
         self.clip_interrogator = None  # We'll initialize this later
+
+        # Initialize Moondream
+        self.moondream_model, self.moondream_tokenizer = setup_moondream()
 
     async def initialize(self):
         # Initialize the search engine
@@ -188,6 +202,13 @@ class ImageSearchApp:
         # Add this line after initializing self.clip_interrogator
         self.clip_interrogator_progress = ft.ProgressBar(width=280, visible=False)
 
+        # Add this line for the Moondream toggle
+        self.moondream_switch = ft.CupertinoSwitch(
+            label="🌙 Moondream",
+            value=False,
+            on_change=self.update_moondream_toggle
+        )
+
         sidebar = ft.Column([
             ft.Text("Image Search App", size=24, weight=ft.FontWeight.BOLD),
             create_step_card("Step 1: Select Images", [
@@ -221,6 +242,11 @@ class ImageSearchApp:
             create_step_card("Additional Options", [
                 ft.Container(
                     content=self.theme_switch,
+                    alignment=ft.alignment.center,
+                    width=280,
+                ),
+                ft.Container(
+                    content=self.moondream_switch,
                     alignment=ft.alignment.center,
                     width=280,
                 ),
@@ -740,8 +766,11 @@ class ImageSearchApp:
                     self.page.update()
                     
                     def process_image():
-                        image = Image.open(image_path).convert('RGB')
-                        description = self.clip_interrogator.interrogate(image)
+                        if self.moondream_switch.value:
+                            description = self.get_moondream_description(image_path)
+                        else:
+                            image = Image.open(image_path).convert('RGB')
+                            description = self.clip_interrogator.interrogate(image)
                         self.search_entry.content.value = description
                         self.clip_interrogator_progress.visible = False
                         self.text_search_switch.value = True
@@ -763,6 +792,17 @@ class ImageSearchApp:
         self.image_search_switch.value = False
         self.hybrid_search_switch.value = False
         self.page.update()
+
+    def update_moondream_toggle(self, e):
+        self.moondream_switch.value = e.control.value
+        self.page.update()
+
+    def get_moondream_description(self, image_path):
+        image = Image.open(image_path)
+        enc_image = self.moondream_model.encode_image(image)
+        prompt = "Describe this image, be straight and direct, no conversation, just the image description:"
+        description = self.moondream_model.answer_question(enc_image, prompt, self.moondream_tokenizer)
+        return description
 
 async def main(page: ft.Page):
     page.window.icon = "assets/icon.ico"
