@@ -149,8 +149,8 @@ class ProjectScannerGUI:
                 "files": "README.md,LICENSE,.gitignore, code_extraction_UI.py"
             },
             "Python": {
-                "folders": ".git,__pycache__,venv,.eggs,build,dist, reports, assets, internal_libs",
-                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl, .json, .md, .pdf, .pptx, .docx, .xlsx, .ppt, .doc, .xls",
+                "folders": ".git,__pycache__,venv,.eggs,build,dist, reports, assets, internal_libs", "auth",
+                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl, .json, .md, .pdf, .pptx, .docx, .xlsx, .ppt, .doc, .xls", .ipynb,
                 "files": "README.md,LICENSE,.gitignore,setup.py,requirements.txt, code_extraction_UI.py, BatchCaller.py"
             },
             "Java": {
