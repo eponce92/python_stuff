@@ -76,6 +76,8 @@ def scan_project(root_folder, exclude_folders, exclude_extensions, exclude_files
     ignore_exts = set(ext.strip().lower() for ext in exclude_extensions.split(',') if ext.strip())
     ignore_files = set(file.strip() for file in exclude_files.split(',') if file.strip())
     
+    ignore_files.add(os.path.basename(__file__))  # Add the script's filename to the ignore list
+    
     content = []
     file_list = []
     total_lines = 0
@@ -149,8 +151,8 @@ class ProjectScannerGUI:
                 "files": "README.md,LICENSE,.gitignore, code_extraction_UI.py"
             },
             "Python": {
-                "folders": ".git,__pycache__,venv,.eggs,build,dist, reports, assets, internal_libs", "auth",
-                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl, .json, .md, .pdf, .pptx, .docx, .xlsx, .ppt, .doc, .xls", .ipynb,
+                "folders": ".git,__pycache__,venv,.eggs,build,dist, reports, assets, internal_libs, auth",
+                "extensions": ".pyc,.pyo,.pyd,.egg-info,.whl, .json, .md, .pdf, .pptx, .docx, .xlsx, .ppt, .doc, .xls, .ipynb",
                 "files": "README.md,LICENSE,.gitignore,setup.py,requirements.txt, code_extraction_UI.py, BatchCaller.py"
             },
             "Java": {
